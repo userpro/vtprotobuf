@@ -580,11 +580,19 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		} else if repeated {
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				if p.ShouldPool(field.Message) {
+					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, field.Message.GoIdent, `FromVTPool())`)
+				} else {
+					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				}
 				p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
 				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
-				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
+				if p.ShouldPool(field.Message) {
+					p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = `, field.Message.GoIdent, `FromVTPool()`)
+				} else {
+					p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
+				}
 				p.P(`}`)
 				p.P(`}`)
 			} else {

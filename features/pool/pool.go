@@ -61,6 +61,7 @@ func (p *pool) message(message *protogen.Message) {
 					p.P(`mm.ResetVT()`)
 					p.P(`}`)
 				}
+				fallthrough
 			default:
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
