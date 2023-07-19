@@ -284,7 +284,11 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		buf := `dAtA[iNdEx:postmsgIndex]`
-		p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
+		if p.ShouldPool(field.Message) {
+			p.P(varName, ` = `, p.noStarOrSliceType(field), `FromVTPool()`)
+		} else {
+			p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
+		}
 		p.decodeMessage(varName, buf, field.Message)
 		p.P(`iNdEx = postmsgIndex`)
 	case protoreflect.BytesKind:

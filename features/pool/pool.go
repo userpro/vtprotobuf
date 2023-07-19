@@ -50,8 +50,16 @@ func (p *pool) message(message *protogen.Message) {
 
 	p.P(`func (m *`, ccTypeName, `) ResetVT() {`)
 	var saved []*protogen.Field
+	oneofFields := make(map[string][]*protogen.Field)
 	for _, field := range message.Fields {
 		fieldName := field.GoName
+
+		// 仅处理非 oneof 字段
+		oneof := field.Oneof != nil && !field.Oneof.Desc.IsSynthetic()
+		if oneof {
+			oneofFields[field.Oneof.GoName] = append(oneofFields[field.Oneof.GoName], field)
+			continue
+		}
 
 		if field.Desc.IsList() {
 			switch field.Desc.Kind() {
@@ -66,10 +74,18 @@ func (p *pool) message(message *protogen.Message) {
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
 			}
-		} else if field.Oneof != nil && p.ShouldPool(message) && p.ShouldPool(field.Message) {
-			p.P(`if oneof, ok := m.`, field.Oneof.GoName, `.(*`, field.GoIdent, `); ok {`)
-			p.P(`oneof.`, fieldName, `.ReturnToVTPool()`)
+		} else if field.Desc.IsMap() {
+			tmpVarName := fmt.Sprintf("f%d", len(saved))
+			p.P(tmpVarName, ` := m.`, fieldName)
+			if p.ShouldPool(field.Message.Fields[1].Message) {
+				p.P(`for k, v := range `, tmpVarName, ` {`)
+				p.P(`v.ReturnToVTPool()`)
+			} else {
+				p.P(`for k := range `, tmpVarName, ` {`)
+			}
+			p.P(`delete(`, tmpVarName, `, k)`)
 			p.P(`}`)
+			saved = append(saved, field)
 		} else {
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
@@ -83,9 +99,40 @@ func (p *pool) message(message *protogen.Message) {
 		}
 	}
 
+	// 处理 oneof字段
+	var oneofSaved []*protogen.Field
+	for fieldOneofName, fields := range oneofFields {
+		for _, field := range fields {
+			fieldName := field.GoName
+
+			switch field.Desc.Kind() {
+			case protoreflect.MessageKind, protoreflect.GroupKind:
+				if !p.ShouldPool(field.Message) {
+					break
+				}
+				p.P(`if oneof, ok := m.`, fieldOneofName, `.(*`, field.GoIdent, `); ok {`)
+				p.P(`oneof.`, fieldName, `.ReturnToVTPool()`)
+				p.P(`}`)
+
+			case protoreflect.BytesKind:
+				tmpVarName := fmt.Sprintf("f%d", len(oneofSaved)+len(saved))
+				p.P(`var `, tmpVarName, `[]byte`)
+				p.P(`if oneof, ok := m.`, fieldOneofName, `.(*`, field.GoIdent, `); ok {`)
+				p.P(tmpVarName, ` = oneof.`, fieldName, `[:0]`)
+				p.P(`}`)
+				oneofSaved = append(oneofSaved, field)
+			}
+		}
+	}
+
 	p.P(`m.Reset()`)
 	for i, field := range saved {
 		p.P(`m.`, field.GoName, ` = `, fmt.Sprintf("f%d", i))
+	}
+	for i, field := range oneofSaved {
+		p.P(`if oneof, ok := m.`, field.Oneof.GoName, `.(*`, field.GoIdent, `); ok {`)
+		p.P(`oneof.`, field.GoName, ` = `, fmt.Sprintf("f%d", i+len(saved)))
+		p.P(`}`)
 	}
 	p.P(`}`)
 
