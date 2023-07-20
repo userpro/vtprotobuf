@@ -92,47 +92,51 @@ func (p *pool) message(message *protogen.Message) {
 				if p.ShouldPool(field.Message) {
 					p.P(`m.`, fieldName, `.ReturnToVTPool()`)
 				}
+				p.P(`m.`, fieldName, `= nil`)
 			case protoreflect.BytesKind:
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
+			case protoreflect.BoolKind:
+				p.P(`m.`, fieldName, `= false`)
+			case protoreflect.StringKind:
+				p.P(`m.`, fieldName, `= ""`)
+			default:
+				p.P(`m.`, fieldName, `= 0`)
 			}
 		}
 	}
 
 	// 处理 oneof字段
-	var oneofSaved []*protogen.Field
 	for fieldOneofName, fields := range oneofFields {
+		p.P(`switch v := m.`, fieldOneofName, `.(type) {`)
 		for _, field := range fields {
 			fieldName := field.GoName
 
+			p.P(`case *`, field.GoIdent, `:`)
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if !p.ShouldPool(field.Message) {
 					break
 				}
-				p.P(`if oneof, ok := m.`, fieldOneofName, `.(*`, field.GoIdent, `); ok {`)
-				p.P(`oneof.`, fieldName, `.ReturnToVTPool()`)
-				p.P(`}`)
+				p.P(`v.`, fieldName, `.ReturnToVTPool()`)
+				p.P(`m.`, fieldOneofName, ` = nil`)
 
 			case protoreflect.BytesKind:
-				tmpVarName := fmt.Sprintf("f%d", len(oneofSaved)+len(saved))
-				p.P(`var `, tmpVarName, `[]byte`)
-				p.P(`if oneof, ok := m.`, fieldOneofName, `.(*`, field.GoIdent, `); ok {`)
-				p.P(tmpVarName, ` = oneof.`, fieldName, `[:0]`)
-				p.P(`}`)
-				oneofSaved = append(oneofSaved, field)
+				p.P(`v.`, fieldName, ` = v.`, fieldName, `[:0]`)
+			case protoreflect.BoolKind:
+				p.P(`v.`, fieldName, `= false`)
+			case protoreflect.StringKind:
+				p.P(`v.`, fieldName, `= ""`)
+			default:
+				p.P(`v.`, fieldName, `= 0`)
 			}
 		}
+		p.P(`}`)
 	}
 
-	p.P(`m.Reset()`)
+	// p.P(`m.Reset()`)
 	for i, field := range saved {
 		p.P(`m.`, field.GoName, ` = `, fmt.Sprintf("f%d", i))
-	}
-	for i, field := range oneofSaved {
-		p.P(`if oneof, ok := m.`, field.Oneof.GoName, `.(*`, field.GoIdent, `); ok {`)
-		p.P(`oneof.`, field.GoName, ` = `, fmt.Sprintf("f%d", i+len(saved)))
-		p.P(`}`)
 	}
 	p.P(`}`)
 
