@@ -67,7 +67,7 @@ func (p *pool) message(message *protogen.Message) {
 				if p.ShouldPool(field.Message) {
 					p.P(`for i, mm := range m.`, fieldName, `{`)
 					p.P(`mm.ReturnToVTPool()`)
-					p.P(`m[i] = nil`)
+					p.P(`m.`, fieldName, `[i] = nil`)
 					p.P(`}`)
 				}
 				fallthrough
