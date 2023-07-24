@@ -639,8 +639,19 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`copy(v, dAtA[iNdEx:postIndex])`)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, postIndex-iNdEx))`)
-			p.P(`copy(m.`, fieldname, `[len(m.`, fieldname, `)-1], dAtA[iNdEx:postIndex])`)
+			if p.ShouldPool(message) {
+				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, 0, postIndex-iNdEx))`)
+				p.P(`} else {`)
+				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
+				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
+				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = make([]byte, 0, postIndex-iNdEx)`)
+				p.P(`}`)
+				p.P(`}`)
+			} else {
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, 0, postIndex-iNdEx))`)
+			}
+			p.P(`m.`, fieldname, `[len(m.`, fieldname, `)-1] = append(m.`, fieldname, `[len(m.`, fieldname, `)-1][:0], dAtA[iNdEx:postIndex]...)`)
 		} else {
 			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `[:0] , dAtA[iNdEx:postIndex]...)`)
 			p.P(`if m.`, fieldname, ` == nil {`)
