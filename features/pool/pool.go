@@ -66,7 +66,7 @@ func (p *pool) message(message *protogen.Message) {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if p.ShouldPool(field.Message) {
 					p.P(`for _, mm := range m.`, fieldName, `{`)
-					p.P(`mm.ResetVT()`)
+					p.P(`mm.ReturnToVTPool()`)
 					p.P(`}`)
 				}
 				fallthrough
