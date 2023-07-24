@@ -65,8 +65,9 @@ func (p *pool) message(message *protogen.Message) {
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if p.ShouldPool(field.Message) {
-					p.P(`for _, mm := range m.`, fieldName, `{`)
+					p.P(`for i, mm := range m.`, fieldName, `{`)
 					p.P(`mm.ReturnToVTPool()`)
+					p.P(`m[i] = nil`)
 					p.P(`}`)
 				}
 				fallthrough
