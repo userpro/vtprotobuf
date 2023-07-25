@@ -78,7 +78,9 @@ func (p *pool) message(message *protogen.Message) {
 		} else if field.Desc.IsMap() {
 			tmpVarName := fmt.Sprintf("f%d", len(saved))
 			p.P(tmpVarName, ` := m.`, fieldName)
-			if p.ShouldPool(field.Message.Fields[1].Message) {
+			kind := field.Desc.Kind()
+			if (kind == protoreflect.MessageKind || kind == protoreflect.GroupKind) &&
+				p.ShouldPool(field.Message.Fields[1].Message) {
 				p.P(`for k, v := range `, tmpVarName, ` {`)
 				p.P(`v.ReturnToVTPool()`)
 			} else {
