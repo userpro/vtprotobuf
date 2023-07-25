@@ -31,7 +31,6 @@ type unmarshal struct {
 var _ generator.FeatureGenerator = (*unmarshal)(nil)
 
 func (p *unmarshal) GenerateFile(file *protogen.File) bool {
-	p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))
 	proto3 := file.Desc.Syntax() == protoreflect.Proto3
 	for _, message := range file.Messages {
 		p.message(proto3, message)
@@ -270,7 +269,7 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		p.P(`v := dAtA[iNdEx:postStringIndex`, varName, `]`)
-		p.P(varName, ` = `, "*(*string)(unsafe.Pointer(&v))")
+		p.P(varName, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 		p.P(`iNdEx = postStringIndex`, varName)
 	case protoreflect.MessageKind:
 		p.P(`var mapmsglen int`)
@@ -304,7 +303,7 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
-		p.P(`x := (*[3]uintptr)(unsafe.Pointer(&`, varName, `))`)
+		p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&`, varName, `))`)
 		p.P(`x[2] = x[1]`)
 		p.P(`iNdEx = postbytesIndex`)
 	case protoreflect.Uint32Kind:
@@ -490,13 +489,13 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`}`)
 		p.P("v := dAtA[iNdEx:postIndex]")
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(unsafe.Pointer(&v))}`)
+			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))}`)
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, `*(*string)(unsafe.Pointer(&v)))`)
+			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v)))`)
 		} else if proto3 && !nullable {
-			p.P(`m.`, fieldname, ` = `, `*(*string)(unsafe.Pointer(&v))`)
+			p.P(`m.`, fieldname, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 		} else {
-			p.P(`m.`, fieldname, ` = *(*string)(unsafe.Pointer(&v))`)
+			p.P(`m.`, fieldname, ` = *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 		}
 		p.P(`iNdEx = postIndex`)
 	case protoreflect.GroupKind:
@@ -619,17 +618,17 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`}`)
 		if oneof {
 			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&v))`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 			p.P(`x[2] = x[1]`)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 		} else if repeated {
 			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&v))`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 			p.P(`x[2] = x[1]`)
 			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
 		} else {
 			p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&m.`, fieldname, `))`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&m.`, fieldname, `))`)
 			p.P(`x[2] = x[1]`)
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = []byte{}`)
