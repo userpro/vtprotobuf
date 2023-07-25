@@ -65,12 +65,12 @@ func (p *pool) message(message *protogen.Message) {
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if p.ShouldPool(field.Message) {
-					p.P(`for i, mm := range m.`, fieldName, `{`)
-					p.P(`mm.ReturnToVTPool()`)
-					p.P(`m.`, fieldName, `[i] = nil`)
+					p.P(`for _, mm := range m.`, fieldName, `{`)
+					p.P(`mm.ResetVT()`)
 					p.P(`}`)
 				}
-				fallthrough
+				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
+				saved = append(saved, field)
 			default:
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
@@ -91,51 +91,49 @@ func (p *pool) message(message *protogen.Message) {
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if p.ShouldPool(field.Message) {
-					p.P(`m.`, fieldName, `.ReturnToVTPool()`)
+					p.P(`m.`, fieldName, `.ResetVT()`)
+					p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName)
+					saved = append(saved, field)
 				}
-				p.P(`m.`, fieldName, `= nil`)
 			case protoreflect.BytesKind:
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
-			case protoreflect.BoolKind:
-				p.P(`m.`, fieldName, `= false`)
-			case protoreflect.StringKind:
-				p.P(`m.`, fieldName, `= ""`)
-			default:
-				p.P(`m.`, fieldName, `= 0`)
 			}
 		}
 	}
 
 	// 处理 oneof字段
 	for fieldOneofName, fields := range oneofFields {
+		needGen := false
+		for _, field := range fields {
+			switch field.Desc.Kind() {
+			case protoreflect.MessageKind, protoreflect.GroupKind:
+				if p.ShouldPool(field.Message) {
+					needGen = true
+				}
+			}
+		}
+		if !needGen {
+			continue
+		}
+
 		p.P(`switch v := m.`, fieldOneofName, `.(type) {`)
 		for _, field := range fields {
 			fieldName := field.GoName
 
-			p.P(`case *`, field.GoIdent, `:`)
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
-				if !p.ShouldPool(field.Message) {
-					break
+				if p.ShouldPool(field.Message) {
+					p.P(`case *`, field.GoIdent, `:`)
+					p.P(`v.`, fieldName, `.ReturnToVTPool()`)
 				}
-				p.P(`v.`, fieldName, `.ReturnToVTPool()`)
-				p.P(`m.`, fieldOneofName, ` = nil`)
-
-			case protoreflect.BytesKind:
-				p.P(`v.`, fieldName, ` = v.`, fieldName, `[:0]`)
-			case protoreflect.BoolKind:
-				p.P(`v.`, fieldName, `= false`)
-			case protoreflect.StringKind:
-				p.P(`v.`, fieldName, `= ""`)
-			default:
-				p.P(`v.`, fieldName, `= 0`)
 			}
 		}
 		p.P(`}`)
 	}
 
 	// p.P(`m.Reset()`)
+	p.P(`*m = `, ccTypeName, `{}`)
 	for i, field := range saved {
 		p.P(`m.`, field.GoName, ` = `, fmt.Sprintf("f%d", i))
 	}

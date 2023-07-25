@@ -31,6 +31,7 @@ type unmarshal struct {
 var _ generator.FeatureGenerator = (*unmarshal)(nil)
 
 func (p *unmarshal) GenerateFile(file *protogen.File) bool {
+	p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))
 	proto3 := file.Desc.Syntax() == protoreflect.Proto3
 	for _, message := range file.Messages {
 		p.message(proto3, message)
@@ -268,7 +269,8 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`if postStringIndex`, varName, ` > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		p.P(varName, ` = `, "string", `(dAtA[iNdEx:postStringIndex`, varName, `])`)
+		p.P(`v := dAtA[iNdEx:postStringIndex`, varName, `]`)
+		p.P(varName, ` = `, "*(*string)(unsafe.Pointer(&v))")
 		p.P(`iNdEx = postStringIndex`, varName)
 	case protoreflect.MessageKind:
 		p.P(`var mapmsglen int`)
@@ -305,8 +307,9 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`if postbytesIndex > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		p.P(varName, ` = make([]byte, mapbyteLen)`)
-		p.P(`copy(`, varName, `, dAtA[iNdEx:postbytesIndex])`)
+		p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
+		p.P(`x := (*[3]uintptr)(unsafe.Pointer(&`, varName, `))`)
+		p.P(`x[2] = x[1]`)
 		p.P(`iNdEx = postbytesIndex`)
 	case protoreflect.Uint32Kind:
 		p.decodeVarint(varName, "uint32")
@@ -489,15 +492,15 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`if postIndex > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
+		p.P("v := dAtA[iNdEx:postIndex]")
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, `(dAtA[iNdEx:postIndex])}`)
+			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(unsafe.Pointer(&v))}`)
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, typ, `(dAtA[iNdEx:postIndex]))`)
+			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, `*(*string)(unsafe.Pointer(&v)))`)
 		} else if proto3 && !nullable {
-			p.P(`m.`, fieldname, ` = `, typ, `(dAtA[iNdEx:postIndex])`)
+			p.P(`m.`, fieldname, ` = `, `*(*string)(unsafe.Pointer(&v))`)
 		} else {
-			p.P(`s := `, typ, `(dAtA[iNdEx:postIndex])`)
-			p.P(`m.`, fieldname, ` = &s`)
+			p.P(`m.`, fieldname, ` = *(*string)(unsafe.Pointer(&v))`)
 		}
 		p.P(`iNdEx = postIndex`)
 	case protoreflect.GroupKind:
@@ -588,19 +591,11 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		} else if repeated {
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
-				if p.ShouldPool(field.Message) {
-					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, field.Message.GoIdent, `FromVTPool())`)
-				} else {
-					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
-				}
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
 				p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
 				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
-				if p.ShouldPool(field.Message) {
-					p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = `, field.Message.GoIdent, `FromVTPool()`)
-				} else {
-					p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
-				}
+				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
 				p.P(`}`)
 				p.P(`}`)
 			} else {
@@ -635,25 +630,28 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		if oneof {
-			p.P(`v := make([]byte, postIndex-iNdEx)`)
-			p.P(`copy(v, dAtA[iNdEx:postIndex])`)
+			p.P(`v := dAtA[iNdEx:postIndex]`)
+			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&v))`)
+			p.P(`x[2] = x[1]`)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 		} else if repeated {
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, 0, postIndex-iNdEx))`)
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, nil)`)
 				p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
-				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
-				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = make([]byte, 0, postIndex-iNdEx)`)
-				p.P(`}`)
 				p.P(`}`)
 			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, 0, postIndex-iNdEx))`)
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, nil)`)
 			}
-			p.P(`m.`, fieldname, `[len(m.`, fieldname, `)-1] = append(m.`, fieldname, `[len(m.`, fieldname, `)-1][:0], dAtA[iNdEx:postIndex]...)`)
+			p.P(`v := dAtA[iNdEx:postIndex]`)
+			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&v))`)
+			p.P(`x[2] = x[1]`)
+			p.P(`m.`, fieldname, `[len(m.`, fieldname, `)-1] = v`)
 		} else {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `[:0] , dAtA[iNdEx:postIndex]...)`)
+			p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
+			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&m.`, fieldname, `))`)
+			p.P(`x[2] = x[1]`)
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = []byte{}`)
 			p.P(`}`)
