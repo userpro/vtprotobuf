@@ -538,11 +538,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
 			p.decodeMessage("oneof."+field.GoName, buf, field.Message)
 			p.P(`} else {`)
-			if p.ShouldPool(message) && p.ShouldPool(field.Message) {
-				p.P(`v := `, msgname, `FromVTPool()`)
-			} else {
-				p.P(`v := &`, msgname, `{}`)
-			}
+			p.P(`v := &`, msgname, `{}`)
 			p.decodeMessage("v", buf, field.Message)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 			p.P(`}`)
@@ -602,11 +598,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.decodeMessage(varname, buf, field.Message)
 		} else {
 			p.P(`if m.`, fieldname, ` == nil {`)
-			if p.ShouldPool(message) && p.ShouldPool(field.Message) {
-				p.P(`m.`, fieldname, ` = `, field.Message.GoIdent, `FromVTPool()`)
-			} else {
-				p.P(`m.`, fieldname, ` = &`, field.Message.GoIdent, `{}`)
-			}
+			p.P(`m.`, fieldname, ` = &`, field.Message.GoIdent, `{}`)
 			p.P(`}`)
 			p.decodeMessage("m."+fieldname, "dAtA[iNdEx:postIndex]", field.Message)
 		}
@@ -631,19 +623,10 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`x[2] = x[1]`)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 		} else if repeated {
-			if p.ShouldPool(message) {
-				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, nil)`)
-				p.P(`} else {`)
-				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
-				p.P(`}`)
-			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, nil)`)
-			}
 			p.P(`v := dAtA[iNdEx:postIndex]`)
 			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&v))`)
 			p.P(`x[2] = x[1]`)
-			p.P(`m.`, fieldname, `[len(m.`, fieldname, `)-1] = v`)
+			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
 		} else {
 			p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
 			p.P(`x := (*[3]uintptr)(unsafe.Pointer(&m.`, fieldname, `))`)

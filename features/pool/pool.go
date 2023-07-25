@@ -95,9 +95,6 @@ func (p *pool) message(message *protogen.Message) {
 					p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName)
 					saved = append(saved, field)
 				}
-			case protoreflect.BytesKind:
-				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
-				saved = append(saved, field)
 			}
 		}
 	}
