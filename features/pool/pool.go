@@ -49,6 +49,9 @@ func (p *pool) message(message *protogen.Message) {
 	p.P(`}`)
 
 	p.P(`func (m *`, ccTypeName, `) ResetVT() {`)
+	p.P(`if m == nil {`)
+	p.P(`return`)
+	p.P(`}`)
 	var saved []*protogen.Field
 	oneofFields := make(map[string][]*protogen.Field)
 	for _, field := range message.Fields {
@@ -71,6 +74,15 @@ func (p *pool) message(message *protogen.Message) {
 				}
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
+			case protoreflect.BytesKind:
+				p.P(`for i := range m.`, fieldName, `{`)
+				p.P(`m.`, fieldName, `[i] = nil`)
+				p.P(`}`)
+
+			case protoreflect.StringKind:
+				p.P(`for i := range m.`, fieldName, `{`)
+				p.P(`m.`, fieldName, `[i] = ""`)
+				p.P(`}`)
 			default:
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)

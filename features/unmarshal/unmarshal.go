@@ -131,18 +131,30 @@ func (p *unmarshal) GenerateHelpers() {
 	`)
 }
 
-func (p *unmarshal) decodeMessage(varName, buf string, message *protogen.Message) {
+func (p *unmarshal) decodeMessage(varName, buf string, message *protogen.Message, isUnsafe bool) {
 	local := p.IsLocalMessage(message)
 
 	if local {
-		p.P(`if err := `, varName, `.UnmarshalVT(`, buf, `); err != nil {`)
+		if isUnsafe {
+			p.P(`if err := `, varName, `.UnmarshalVTUnSafe(`, buf, `); err != nil {`)
+		} else {
+			p.P(`if err := `, varName, `.UnmarshalVT(`, buf, `); err != nil {`)
+		}
 		p.P(`return err`)
 		p.P(`}`)
 	} else {
 		p.P(`if unmarshal, ok := interface{}(`, varName, `).(interface{`)
-		p.P(`UnmarshalVT([]byte) error`)
+		if isUnsafe {
+			p.P(`UnmarshalVTUnSafe([]byte) error`)
+		} else {
+			p.P(`UnmarshalVT([]byte) error`)
+		}
 		p.P(`}); ok{`)
-		p.P(`if err := unmarshal.UnmarshalVT(`, buf, `); err != nil {`)
+		if isUnsafe {
+			p.P(`if err := unmarshal.UnmarshalVTUnSafe(`, buf, `); err != nil {`)
+		} else {
+			p.P(`if err := unmarshal.UnmarshalVT(`, buf, `); err != nil {`)
+		}
 		p.P(`return err`)
 		p.P(`}`)
 		p.P(`} else {`)
@@ -230,7 +242,7 @@ func (p *unmarshal) declareMapField(varName string, nullable bool, field *protog
 	}
 }
 
-func (p *unmarshal) mapField(varName string, field *protogen.Field) {
+func (p *unmarshal) mapField(varName string, field *protogen.Field, isUnsafe bool) {
 	switch field.Desc.Kind() {
 	case protoreflect.DoubleKind:
 		p.P(`var `, varName, `temp uint64`)
@@ -268,8 +280,12 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`if postStringIndex`, varName, ` > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		p.P(`v := dAtA[iNdEx:postStringIndex`, varName, `]`)
-		p.P(varName, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+		if isUnsafe {
+			p.P(`v := dAtA[iNdEx:postStringIndex`, varName, `]`)
+			p.P(varName, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+		} else {
+			p.P(varName, ` = `, "string", `(dAtA[iNdEx:postStringIndex`, varName, `])`)
+		}
 		p.P(`iNdEx = postStringIndex`, varName)
 	case protoreflect.MessageKind:
 		p.P(`var mapmsglen int`)
@@ -285,8 +301,12 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		buf := `dAtA[iNdEx:postmsgIndex]`
-		p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
-		p.decodeMessage(varName, buf, field.Message)
+		if p.ShouldPool(field.Message) {
+			p.P(varName, ` = `, p.noStarOrSliceType(field), `FromVTPool()`)
+		} else {
+			p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
+		}
+		p.decodeMessage(varName, buf, field.Message, isUnsafe)
 		p.P(`iNdEx = postmsgIndex`)
 	case protoreflect.BytesKind:
 		p.P(`var mapbyteLen uint64`)
@@ -302,9 +322,14 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`if postbytesIndex > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
-		p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&`, varName, `))`)
-		p.P(`x[2] = x[1]`)
+		if isUnsafe {
+			p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&`, varName, `))`)
+			p.P(`x[2] = x[1]`)
+		} else {
+			p.P(varName, ` = make([]byte, mapbyteLen)`)
+			p.P(`copy(`, varName, `, dAtA[iNdEx:postbytesIndex])`)
+		}
 		p.P(`iNdEx = postbytesIndex`)
 	case protoreflect.Uint32Kind:
 		p.decodeVarint(varName, "uint32")
@@ -339,7 +364,7 @@ func (p *unmarshal) noStarOrSliceType(field *protogen.Field) string {
 	return typ
 }
 
-func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *protogen.Message, proto3 bool) {
+func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *protogen.Message, proto3 bool, isUnsafe bool) {
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
 	typ := p.noStarOrSliceType(field)
 	oneof := field.Oneof != nil && !field.Oneof.Desc.IsSynthetic()
@@ -487,15 +512,35 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`if postIndex > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		p.P("v := dAtA[iNdEx:postIndex]")
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))}`)
+			if isUnsafe {
+				p.P("v := dAtA[iNdEx:postIndex]")
+				p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))}`)
+			} else {
+				p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, `(dAtA[iNdEx:postIndex])}`)
+			}
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v)))`)
+			if isUnsafe {
+				p.P("v := dAtA[iNdEx:postIndex]")
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v)))`)
+			} else {
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, typ, `(dAtA[iNdEx:postIndex]))`)
+			}
 		} else if proto3 && !nullable {
-			p.P(`m.`, fieldname, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+			if isUnsafe {
+				p.P("v := dAtA[iNdEx:postIndex]")
+				p.P(`m.`, fieldname, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+			} else {
+				p.P(`m.`, fieldname, ` = `, typ, `(dAtA[iNdEx:postIndex])`)
+			}
 		} else {
-			p.P(`m.`, fieldname, ` = *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+			if isUnsafe {
+				p.P("v := dAtA[iNdEx:postIndex]")
+				p.P(`m.`, fieldname, ` = *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+			} else {
+				p.P(`s := `, typ, `(dAtA[iNdEx:postIndex])`)
+				p.P(`m.`, fieldname, ` = &s`)
+			}
 		}
 		p.P(`iNdEx = postIndex`)
 	case protoreflect.GroupKind:
@@ -506,7 +551,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.decodeVarint("groupFieldWire", "uint64")
 		p.P(`groupWireType := int(wire & 0x7)`)
 		p.P(`if groupWireType == `, strconv.Itoa(int(protowire.EndGroupType)), `{`)
-		p.decodeMessage("m."+fieldname, "dAtA[groupStart:maybeGroupEnd]", field.Message)
+		p.decodeMessage("m."+fieldname, "dAtA[groupStart:maybeGroupEnd]", field.Message, isUnsafe)
 		p.P(`break`)
 		p.P(`}`)
 		p.P(`skippy, err := skip(dAtA[iNdEx:])`)
@@ -535,10 +580,14 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			buf := `dAtA[iNdEx:postIndex]`
 			msgname := p.noStarOrSliceType(field)
 			p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
-			p.decodeMessage("oneof."+field.GoName, buf, field.Message)
+			p.decodeMessage("oneof."+field.GoName, buf, field.Message, isUnsafe)
 			p.P(`} else {`)
-			p.P(`v := &`, msgname, `{}`)
-			p.decodeMessage("v", buf, field.Message)
+			if p.ShouldPool(field.Message) {
+				p.P(`v := `, msgname, `FromVTPool()`)
+			} else {
+				p.P(`v := &`, msgname, `{}`)
+			}
+			p.decodeMessage("v", buf, field.Message, isUnsafe)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 			p.P(`}`)
 		} else if field.Desc.IsMap() {
@@ -560,9 +609,9 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`fieldNum := int32(wire >> 3)`)
 
 			p.P(`if fieldNum == 1 {`)
-			p.mapField("mapkey", field.Message.Fields[0])
+			p.mapField("mapkey", field.Message.Fields[0], isUnsafe)
 			p.P(`} else if fieldNum == 2 {`)
-			p.mapField("mapvalue", field.Message.Fields[1])
+			p.mapField("mapvalue", field.Message.Fields[1], isUnsafe)
 			p.P(`} else {`)
 			p.P(`iNdEx = entryPreIndex`)
 			p.P(`skippy, err := skip(dAtA[iNdEx:])`)
@@ -594,12 +643,12 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			}
 			varname := fmt.Sprintf("m.%s[len(m.%s) - 1]", fieldname, fieldname)
 			buf := `dAtA[iNdEx:postIndex]`
-			p.decodeMessage(varname, buf, field.Message)
+			p.decodeMessage(varname, buf, field.Message, isUnsafe)
 		} else {
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = &`, field.Message.GoIdent, `{}`)
 			p.P(`}`)
-			p.decodeMessage("m."+fieldname, "dAtA[iNdEx:postIndex]", field.Message)
+			p.decodeMessage("m."+fieldname, "dAtA[iNdEx:postIndex]", field.Message, isUnsafe)
 		}
 		p.P(`iNdEx = postIndex`)
 
@@ -617,19 +666,33 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		if oneof {
-			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-			p.P(`x[2] = x[1]`)
+			if isUnsafe {
+				p.P(`v := dAtA[iNdEx:postIndex]`)
+				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+				p.P(`x[2] = x[1]`)
+			} else {
+				p.P(`v := make([]byte, postIndex-iNdEx)`)
+				p.P(`copy(v, dAtA[iNdEx:postIndex])`)
+			}
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 		} else if repeated {
-			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-			p.P(`x[2] = x[1]`)
+			if isUnsafe {
+				p.P(`v := dAtA[iNdEx:postIndex]`)
+				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+				p.P(`x[2] = x[1]`)
+			} else {
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, postIndex-iNdEx))`)
+				p.P(`copy(m.`, fieldname, `[len(m.`, fieldname, `)-1], dAtA[iNdEx:postIndex])`)
+			}
 			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
 		} else {
-			p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&m.`, fieldname, `))`)
-			p.P(`x[2] = x[1]`)
+			if isUnsafe {
+				p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
+				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&m.`, fieldname, `))`)
+				p.P(`x[2] = x[1]`)
+			} else {
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `[:0] , dAtA[iNdEx:postIndex]...)`)
+			}
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = []byte{}`)
 			p.P(`}`)
@@ -735,7 +798,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 	}
 }
 
-func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *protogen.Message, required protoreflect.FieldNumbers) {
+func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *protogen.Message, required protoreflect.FieldNumbers, isUnsafe bool) {
 	fieldname := field.GoName
 	errFieldname := fieldname
 	if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
@@ -746,7 +809,7 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 	wireType := generator.ProtoWireType(field.Desc.Kind())
 	if field.Desc.IsList() && wireType != protowire.BytesType {
 		p.P(`if wireType == `, strconv.Itoa(int(wireType)), `{`)
-		p.fieldItem(field, fieldname, message, false)
+		p.fieldItem(field, fieldname, message, false, isUnsafe)
 		p.P(`} else if wireType == `, strconv.Itoa(int(protowire.BytesType)), `{`)
 		p.P(`var packedLen int`)
 		p.decodeVarint("packedLen", "int")
@@ -790,7 +853,7 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 		p.P(`}`)
 
 		p.P(`for iNdEx < postIndex {`)
-		p.fieldItem(field, fieldname, message, false)
+		p.fieldItem(field, fieldname, message, false, isUnsafe)
 		p.P(`}`)
 		p.P(`} else {`)
 		p.P(`return `, p.Ident("fmt", "Errorf"), `("proto: wrong wireType = %d for field `, errFieldname, `", wireType)`)
@@ -799,7 +862,7 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 		p.P(`if wireType != `, strconv.Itoa(int(wireType)), `{`)
 		p.P(`return `, p.Ident("fmt", "Errorf"), `("proto: wrong wireType = %d for field `, errFieldname, `", wireType)`)
 		p.P(`}`)
-		p.fieldItem(field, fieldname, message, proto3)
+		p.fieldItem(field, fieldname, message, proto3, isUnsafe)
 	}
 
 	if field.Desc.Cardinality() == protoreflect.Required {
@@ -849,7 +912,7 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	p.P(`}`)
 	p.P(`switch fieldNum {`)
 	for _, field := range message.Fields {
-		p.field(proto3, false, field, message, required)
+		p.field(proto3, false, field, message, required, false)
 	}
 	p.P(`default:`)
 	p.P(`iNdEx=preIndex`)
@@ -909,4 +972,6 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	p.P(`}`)
 	p.P(`return nil`)
 	p.P(`}`)
+
+	p.messageUnsafe(proto3, message)
 }
