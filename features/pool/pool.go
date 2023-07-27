@@ -81,14 +81,15 @@ func (p *pool) message(message *protogen.Message) {
 		} else if field.Desc.IsMap() {
 			tmpVarName := fmt.Sprintf("f%d", len(saved))
 			p.P(tmpVarName, ` := m.`, fieldName)
-			kind := field.Desc.Kind()
-			if (kind == protoreflect.MessageKind || kind == protoreflect.GroupKind) &&
-				p.ShouldPool(field.Message.Fields[1].Message) {
-				p.P(`for k, v := range `, tmpVarName, ` {`)
-				p.P(`v.ReturnToVTPool()`)
-			} else {
-				p.P(`for k := range `, tmpVarName, ` {`)
-			}
+			// Comment: 对 map 的 message value 进行 pool 无收益
+			// kind := field.Desc.Kind()
+			// if (kind == protoreflect.MessageKind || kind == protoreflect.GroupKind) &&
+			// 	p.ShouldPool(field.Message.Fields[1].Message) {
+			// 	p.P(`for k, v := range `, tmpVarName, ` {`)
+			// 	p.P(`v.ReturnToVTPool()`)
+			// } else {
+			p.P(`for k := range `, tmpVarName, ` {`)
+			// }
 			p.P(`delete(`, tmpVarName, `, k)`)
 			p.P(`}`)
 			saved = append(saved, field)
@@ -105,6 +106,7 @@ func (p *pool) message(message *protogen.Message) {
 	}
 
 	// 处理 oneof字段
+	oneofSaved := []string{}
 	for fieldOneofName, fields := range oneofFields {
 		needGen := false
 		for _, field := range fields {
@@ -119,6 +121,8 @@ func (p *pool) message(message *protogen.Message) {
 			continue
 		}
 
+		p.P(fmt.Sprintf("f%d", len(oneofSaved)+len(saved)), ` := m.`, fieldOneofName)
+		oneofSaved = append(oneofSaved, fieldOneofName)
 		p.P(`switch v := m.`, fieldOneofName, `.(type) {`)
 		for _, field := range fields {
 			fieldName := field.GoName
@@ -127,7 +131,7 @@ func (p *pool) message(message *protogen.Message) {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if p.ShouldPool(field.Message) {
 					p.P(`case *`, field.GoIdent, `:`)
-					p.P(`v.`, fieldName, `.ReturnToVTPool()`)
+					p.P(`v.`, fieldName, `.ResetVT()`)
 				}
 			}
 		}
@@ -138,6 +142,10 @@ func (p *pool) message(message *protogen.Message) {
 	p.P(`*m = `, ccTypeName, `{}`)
 	for i, field := range saved {
 		p.P(`m.`, field.GoName, ` = `, fmt.Sprintf("f%d", i))
+	}
+
+	for i, field := range oneofSaved {
+		p.P(`m.`, field, ` = `, fmt.Sprintf("f%d", i+len(saved)))
 	}
 	p.P(`}`)
 

@@ -301,11 +301,12 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field, isUnsafe boo
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		buf := `dAtA[iNdEx:postmsgIndex]`
-		if p.ShouldPool(field.Message) {
-			p.P(varName, ` = `, p.noStarOrSliceType(field), `FromVTPool()`)
-		} else {
-			p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
-		}
+		// Comment: 对 map 的 message value 进行 pool 无收益
+		// if p.ShouldPool(field.Message) {
+		// 	p.P(varName, ` = `, p.noStarOrSliceType(field), `FromVTPool()`)
+		// } else {
+		p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
+		// }
 		p.decodeMessage(varName, buf, field.Message, isUnsafe)
 		p.P(`iNdEx = postmsgIndex`)
 	case protoreflect.BytesKind:
@@ -515,9 +516,18 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		if oneof {
 			if isUnsafe {
 				p.P("v := dAtA[iNdEx:postIndex]")
+				// Comment: 由于 oneof 的可预测性过低 尝试缓存 oneof 字段上次的结果没有意义
+				// p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
+				// p.P(`oneof.`, field.GoName, ` = *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+				// p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))}`)
+				// p.P(`}`)
 			} else {
+				// p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
+				// p.P(`oneof.`, field.GoName, ` = `, typ, `(dAtA[iNdEx:postIndex])`)
+				// p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, `(dAtA[iNdEx:postIndex])}`)
+				// p.P(`}`)
 			}
 		} else if repeated {
 			if isUnsafe {
@@ -582,11 +592,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
 			p.decodeMessage("oneof."+field.GoName, buf, field.Message, isUnsafe)
 			p.P(`} else {`)
-			if p.ShouldPool(field.Message) {
-				p.P(`v := `, msgname, `FromVTPool()`)
-			} else {
-				p.P(`v := &`, msgname, `{}`)
-			}
+			p.P(`v := &`, msgname, `{}`)
 			p.decodeMessage("v", buf, field.Message, isUnsafe)
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 			p.P(`}`)
