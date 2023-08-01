@@ -18,10 +18,6 @@ import (
 )
 
 func (p *unmarshal) messageUnsafe(proto3 bool, message *protogen.Message) {
-	for _, nested := range message.Messages {
-		p.messageUnsafe(proto3, nested)
-	}
-
 	if message.Desc.IsMapEntry() {
 		return
 	}
