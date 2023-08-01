@@ -546,7 +546,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		} else {
 			if isUnsafe {
 				p.P("v := dAtA[iNdEx:postIndex]")
-				p.P(`m.`, fieldname, ` = *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+				p.P(`m.`, fieldname, ` = (*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 			} else {
 				p.P(`s := `, typ, `(dAtA[iNdEx:postIndex])`)
 				p.P(`m.`, fieldname, ` = &s`)
