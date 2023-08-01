@@ -686,11 +686,11 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 				p.P(`v := dAtA[iNdEx:postIndex]`)
 				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
 				p.P(`x[2] = x[1]`)
+				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
 			} else {
 				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, postIndex-iNdEx))`)
 				p.P(`copy(m.`, fieldname, `[len(m.`, fieldname, `)-1], dAtA[iNdEx:postIndex])`)
 			}
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
 		} else {
 			if isUnsafe {
 				p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
