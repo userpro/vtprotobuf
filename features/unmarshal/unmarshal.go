@@ -17,6 +17,9 @@ import (
 	"github.com/planetscale/vtprotobuf/generator"
 )
 
+// Third-part library
+var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/dolthub/swiss")
+
 func init() {
 	generator.RegisterFeature("unmarshal", func(gen *generator.GeneratedFile) generator.FeatureGenerator {
 		return &unmarshal{GeneratedFile: gen}
@@ -597,12 +600,12 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 			p.P(`}`)
 		} else if field.Desc.IsMap() {
-			goTyp, _ := p.FieldGoType(field)
+			// goTyp, _ := p.FieldGoType(field)
 			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
 			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
 
 			p.P(`if m.`, fieldname, ` == nil {`)
-			p.P(`m.`, fieldname, ` = make(`, goTyp, `)`)
+			p.P(`m.`, fieldname, ` = `, p.QualifiedGoIdent(swissMapPackage.Ident(`NewMap[`+goTypK+`, `+goTypV+`](8)`)))
 			p.P(`}`)
 
 			p.P("var mapkey ", goTypK)
@@ -633,7 +636,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`iNdEx += skippy`)
 			p.P(`}`)
 			p.P(`}`)
-			p.P(`m.`, fieldname, `[mapkey] = mapvalue`)
+			p.P(`m.`, fieldname, `.Put(mapkey, mapvalue)`)
 		} else if repeated {
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)

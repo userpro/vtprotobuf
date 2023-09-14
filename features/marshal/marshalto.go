@@ -97,7 +97,7 @@ func (p *marshal) encodeKey(fieldNumber protoreflect.FieldNumber, wireType proto
 	}
 }
 
-func (p *marshal) mapField(kvField *protogen.Field, varName string) {
+func (p *marshal) mapField(kvField *protogen.Field, varName string, isCustomMap bool, customMapKeys string) {
 	switch kvField.Desc.Kind() {
 	case protoreflect.DoubleKind:
 		p.encodeFixed64(p.Ident("math", "Float64bits"), `(float64(`, varName, `))`)
@@ -125,7 +125,7 @@ func (p *marshal) mapField(kvField *protogen.Field, varName string) {
 	case protoreflect.Sint64Kind:
 		p.encodeVarint(`(uint64(`, varName, `) << 1) ^ uint64((`, varName, ` >> 63))`)
 	case protoreflect.MessageKind:
-		p.marshalBackward(varName, true, kvField.Message)
+		p.marshalBackward(varName, true, kvField.Message, isCustomMap, customMapKeys)
 	}
 }
 
@@ -133,7 +133,9 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 	fieldname := field.GoName
 	nullable := field.Message != nil || (!oneof && field.Desc.HasPresence())
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
-	if repeated {
+	if field.Desc.IsMap() {
+		p.P(`if m.`, fieldname, `.Count() > 0 {`)
+	} else if repeated {
 		p.P(`if len(m.`, fieldname, `) > 0 {`)
 	} else if nullable {
 		if field.Desc.Cardinality() == protoreflect.Required {
@@ -376,52 +378,55 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 		}
 	case protoreflect.GroupKind:
 		p.encodeKey(fieldNumber, protowire.EndGroupType)
-		p.marshalBackward(`m.`+fieldname, false, field.Message)
+		p.marshalBackward(`m.`+fieldname, false, field.Message, false, "")
 		p.encodeKey(fieldNumber, protowire.StartGroupType)
 	case protoreflect.MessageKind:
 		if field.Desc.IsMap() {
+			errKeysName := `errFor` + fieldname
 			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
+			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
 			keyKind := field.Message.Fields[0].Desc.Kind()
 			valKind := field.Message.Fields[1].Desc.Kind()
 
+			p.P(`var `, errKeysName, ` error`)
 			var val string
 			if p.Stable && keyKind != protoreflect.BoolKind {
 				keysName := `keysFor` + fieldname
 				p.P(keysName, ` := make([]`, goTypK, `, 0, len(m.`, fieldname, `))`)
-				p.P(`for k := range m.`, fieldname, ` {`)
+				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) bool {`)
 				p.P(keysName, ` = append(`, keysName, `, `, goTypK, `(k))`)
-				p.P(`}`)
+				p.P(`})`)
 				p.P(p.Ident("sort", "Slice"), `(`, keysName, `, func(i, j int) bool {`)
 				p.P(`return `, keysName, `[i] < `, keysName, `[j]`)
 				p.P(`})`)
 				val = p.reverseListRange(keysName)
 			} else {
-				p.P(`for k := range m.`, fieldname, ` {`)
+				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) bool {`)
 				val = "k"
-			}
-			if p.Stable {
-				p.P(`v := m.`, fieldname, `[`, goTypK, `(`, val, `)]`)
-			} else {
-				p.P(`v := m.`, fieldname, `[`, val, `]`)
 			}
 			p.P(`baseI := i`)
 
 			accessor := `v`
-			p.mapField(field.Message.Fields[1], accessor)
+			p.mapField(field.Message.Fields[1], accessor, true, errKeysName)
 			p.encodeKey(2, generator.ProtoWireType(valKind))
 
-			p.mapField(field.Message.Fields[0], val)
+			p.mapField(field.Message.Fields[0], val, true, errKeysName)
 			p.encodeKey(1, generator.ProtoWireType(keyKind))
 			p.encodeVarint(`baseI - i`)
 			p.encodeKey(fieldNumber, wireType)
+			p.P(`return true`)
+			p.P(`})`)
+
+			p.P(`if `, errKeysName, ` != nil {`)
+			p.P(`return 0, `, errKeysName)
 			p.P(`}`)
 		} else if repeated {
 			val := p.reverseListRange(`m.`, fieldname)
-			p.marshalBackward(val, true, field.Message)
+			p.marshalBackward(val, true, field.Message, false, "")
 			p.encodeKey(fieldNumber, wireType)
 			p.P(`}`)
 		} else {
-			p.marshalBackward(`m.`+fieldname, true, field.Message)
+			p.marshalBackward(`m.`+fieldname, true, field.Message, false, "")
 			p.encodeKey(fieldNumber, wireType)
 		}
 	case protoreflect.BytesKind:
@@ -696,7 +701,7 @@ func (p *marshal) reverseListRange(expression ...string) string {
 	return exp + `[iNdEx]`
 }
 
-func (p *marshal) marshalBackward(varName string, varInt bool, message *protogen.Message) {
+func (p *marshal) marshalBackward(varName string, varInt bool, message *protogen.Message, isCustomMap bool, customErrs string) {
 	local := p.IsLocalMessage(message)
 
 	if local {
@@ -709,7 +714,12 @@ func (p *marshal) marshalBackward(varName string, varInt bool, message *protogen
 	}
 
 	p.P(`if err != nil {`)
-	p.P(`return 0, err`)
+	if isCustomMap {
+		p.P(customErrs, ` = err`)
+		p.P(`return false`)
+	} else {
+		p.P(`return 0, err`)
+	}
 	p.P(`}`)
 	p.P(`i -= size`)
 	if varInt {
@@ -720,7 +730,12 @@ func (p *marshal) marshalBackward(varName string, varInt bool, message *protogen
 		p.P(`} else {`)
 		p.P(`encoded, err := `, p.Ident(generator.ProtoPkg, "Marshal"), `(`, varName, `)`)
 		p.P(`if err != nil {`)
-		p.P(`return 0, err`)
+		if isCustomMap {
+			p.P(customErrs, ` = err`)
+			p.P(`return false`)
+		} else {
+			p.P(`return 0, err`)
+		}
 		p.P(`}`)
 		p.P(`i -= len(encoded)`)
 		p.P(`copy(dAtA[i:], encoded)`)

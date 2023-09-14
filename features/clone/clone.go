@@ -19,6 +19,8 @@ const (
 
 var (
 	protoPkg = protogen.GoImportPath("google.golang.org/protobuf/proto")
+	// Third-part library
+	swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/dolthub/swiss")
 )
 
 func init() {
@@ -63,18 +65,30 @@ func (p *clone) cloneOneofField(lhsBase, rhsBase string, oneof *protogen.Oneof) 
 }
 
 // cloneFieldSingular generates the code for cloning a singular, non-oneof field.
-func (p *clone) cloneFieldSingular(lhs, rhs string, kind protoreflect.Kind, message *protogen.Message) {
+func (p *clone) cloneFieldSingular(lhs, rhs string, kind protoreflect.Kind, message *protogen.Message, isCustomMap bool) {
 	switch {
 	case kind == protoreflect.MessageKind, kind == protoreflect.GroupKind:
 		if p.IsLocalMessage(message) {
-			p.P(lhs, ` = `, rhs, `.`, cloneName, `()`)
+			if isCustomMap {
+				p.P(lhs, `.Put(k, `, rhs, `.`, cloneName, `())`)
+			} else {
+				p.P(lhs, ` = `, rhs, `.`, cloneName, `()`)
+			}
 		} else {
 			// rhs is a concrete type, we need to first convert it to an interface in order to use an interface
 			// type assertion.
 			p.P(`if vtpb, ok := interface{}(`, rhs, `).(interface{ `, cloneName, `() *`, message.GoIdent, ` }); ok {`)
-			p.P(lhs, ` = vtpb.`, cloneName, `()`)
+			if isCustomMap {
+				p.P(lhs, `.Put(k, vtpb.`, cloneName, `())`)
+			} else {
+				p.P(lhs, ` = vtpb.`, cloneName, `()`)
+			}
 			p.P(`} else {`)
-			p.P(lhs, ` = `, protoPkg.Ident("Clone"), `(`, rhs, `).(*`, message.GoIdent, `)`)
+			if isCustomMap {
+				p.P(lhs, `.Put(k, `, protoPkg.Ident("Clone"), `(`, rhs, `).(*`, message.GoIdent, `))`)
+			} else {
+				p.P(lhs, ` = `, protoPkg.Ident("Clone"), `(`, rhs, `).(*`, message.GoIdent, `)`)
+			}
 			p.P(`}`)
 		}
 	case kind == protoreflect.BytesKind:
@@ -82,7 +96,11 @@ func (p *clone) cloneFieldSingular(lhs, rhs string, kind protoreflect.Kind, mess
 		p.P(`copy(tmpBytes, `, rhs, `)`)
 		p.P(lhs, ` = tmpBytes`)
 	case isScalar(kind):
-		p.P(lhs, ` = `, rhs)
+		if isCustomMap {
+			p.P(lhs, `.Put(k, `, rhs, `)`)
+		} else {
+			p.P(lhs, ` = `, rhs)
+		}
 	default:
 		panic("unexpected")
 	}
@@ -115,7 +133,13 @@ func (p *clone) cloneField(lhsBase, rhsBase string, allFieldsNullable bool, fiel
 
 	if field.Desc.Cardinality() == protoreflect.Repeated { // maps and slices
 		goType, _ := p.FieldGoType(field)
-		p.P(`tmpContainer := make(`, goType, `, len(`, rhs, `))`)
+		if field.Desc.IsMap() {
+			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
+			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
+			p.P(`tmpContainer := `, p.QualifiedGoIdent(swissMapPackage.Ident(`NewMap[`+goTypK+`, `+goTypV+`](8)`)))
+		} else {
+			p.P(`tmpContainer := make(`, goType, `, len(`, rhs, `))`)
+		}
 		if isScalar(fieldKind) && field.Desc.IsList() {
 			// Generated code optimization: instead of iterating over all (key/index, value) pairs,
 			// do a single copy(dst, src) invocation for slices whose elements aren't reference types.
@@ -127,17 +151,24 @@ func (p *clone) cloneField(lhsBase, rhsBase string, allFieldsNullable bool, fiel
 				valueField := field.Message.Fields[1]
 				fieldKind = valueField.Desc.Kind()
 				msg = valueField.Message
+				goTypK, _ := p.FieldGoType(field.Message.Fields[0])
+				goTypV, _ := p.FieldGoType(field.Message.Fields[1])
+				p.P(rhs, `.Iter(func (k `, goTypK, `, v `, goTypV, `) bool {`)
+				p.cloneFieldSingular("tmpContainer", "v", fieldKind, msg, true)
+				p.P(`return true`)
+				p.P(`})`)
+			} else {
+				p.P(`for k, v := range `, rhs, ` {`)
+				p.cloneFieldSingular("tmpContainer[k]", "v", fieldKind, msg, false)
+				p.P(`}`)
 			}
-			p.P(`for k, v := range `, rhs, ` {`)
-			p.cloneFieldSingular("tmpContainer[k]", "v", fieldKind, msg)
-			p.P(`}`)
 		}
 		p.P(lhs, ` = tmpContainer`)
 	} else if isScalar(fieldKind) {
 		p.P(`tmpVal := *`, rhs)
 		p.P(lhs, ` = &tmpVal`)
 	} else {
-		p.cloneFieldSingular(lhs, rhs, fieldKind, msg)
+		p.cloneFieldSingular(lhs, rhs, fieldKind, msg, false)
 	}
 	p.P(`}`)
 }

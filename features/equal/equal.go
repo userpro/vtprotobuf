@@ -145,11 +145,11 @@ func (p *equal) oneof(field *protogen.Field) {
 	kind := field.Desc.Kind()
 	switch {
 	case isScalar(kind):
-		p.compareScalar(lhs, rhs, false)
+		p.compareScalar(lhs, rhs, false, false, "")
 	case kind == protoreflect.BytesKind:
-		p.compareBytes(lhs, rhs, false)
+		p.compareBytes(lhs, rhs, false, false, "")
 	case kind == protoreflect.MessageKind || kind == protoreflect.GroupKind:
-		p.compareCall(lhs, rhs, field.Message, false)
+		p.compareCall(lhs, rhs, field.Message, false, false, "")
 	default:
 		panic("not implemented")
 	}
@@ -160,24 +160,35 @@ func (p *equal) oneof(field *protogen.Field) {
 
 func (p *equal) field(field *protogen.Field, nullable bool) {
 	fieldname := field.GoName
+	keysName := `isSameFor` + fieldname
 
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
 	lhs := fmt.Sprintf("this.%s", fieldname)
 	rhs := fmt.Sprintf("that.%s", fieldname)
 
+	isCustomMap := field.Desc.IsMap()
 	if repeated {
-		p.P(`if len(`, lhs, `) != len(`, rhs, `) {`)
+		if isCustomMap {
+			p.P(`if `, lhs, `.Count() != `, rhs, `.Count() {`)
+		} else {
+			p.P(`if len(`, lhs, `) != len(`, rhs, `) {`)
+		}
 		p.P(`	return false`)
 		p.P(`}`)
-		p.P(`for i, vx := range `, lhs, ` {`)
-		if field.Desc.IsMap() {
-			p.P(`vy, ok := `, rhs, `[i]`)
+		if isCustomMap {
+			p.P(keysName, ` := true`)
+			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
+			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
+			p.P(lhs, `.Iter(func (i `, goTypK, `, vx `, goTypV, `) bool {`)
+			p.P(`vy, ok := `, rhs, `.Get(i)`)
 			p.P(`if !ok {`)
+			p.P(keysName, ` = false`)
 			p.P(`return false`)
 			p.P(`}`)
 
 			field = field.Message.Fields[1]
 		} else {
+			p.P(`for i, vx := range `, lhs, ` {`)
 			p.P(`vy := `, rhs, `[i]`)
 		}
 		lhs, rhs = "vx", "vy"
@@ -187,13 +198,13 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 	kind := field.Desc.Kind()
 	switch {
 	case isScalar(kind):
-		p.compareScalar(lhs, rhs, nullable)
+		p.compareScalar(lhs, rhs, nullable, isCustomMap, keysName)
 
 	case kind == protoreflect.BytesKind:
-		p.compareBytes(lhs, rhs, nullable)
+		p.compareBytes(lhs, rhs, nullable, isCustomMap, keysName)
 
 	case kind == protoreflect.MessageKind || kind == protoreflect.GroupKind:
-		p.compareCall(lhs, rhs, field.Message, nullable)
+		p.compareCall(lhs, rhs, field.Message, nullable, isCustomMap, keysName)
 
 	default:
 		panic("not implemented")
@@ -201,32 +212,46 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 
 	if repeated {
 		// close for loop
-		p.P(`}`)
+		if isCustomMap {
+			p.P(`return true`)
+			p.P(`})`)
+			p.P(`if !`, keysName, ` {`)
+			p.P(`return `, keysName, ``)
+			p.P(`}`)
+		} else {
+			p.P(`}`)
+		}
 	}
 }
 
-func (p *equal) compareScalar(lhs, rhs string, nullable bool) {
+func (p *equal) compareScalar(lhs, rhs string, nullable, isCustomMap bool, customMapKeys string) {
 	if nullable {
 		p.P(`if p, q := `, lhs, `, `, rhs, `; (p == nil && q != nil) || (p != nil && (q == nil || *p != *q)) {`)
 	} else {
 		p.P(`if `, lhs, ` != `, rhs, ` {`)
 	}
+	if isCustomMap {
+		p.P(`	`, customMapKeys, ` = false`)
+	}
 	p.P(`	return false`)
 	p.P(`}`)
 }
 
-func (p *equal) compareBytes(lhs, rhs string, nullable bool) {
+func (p *equal) compareBytes(lhs, rhs string, nullable, isCustomMap bool, customMapKeys string) {
 	if nullable {
 		p.P(`if p, q := `, lhs, `, `, rhs, `; (p == nil && q != nil) || (p != nil && q == nil) || string(p) != string(q) {`)
 	} else {
 		// Inlined call to bytes.Equal()
 		p.P(`if string(`, lhs, `) != string(`, rhs, `) {`)
 	}
+	if isCustomMap {
+		p.P(`	`, customMapKeys, ` = false`)
+	}
 	p.P(`	return false`)
 	p.P(`}`)
 }
 
-func (p *equal) compareCall(lhs, rhs string, msg *protogen.Message, nullable bool) {
+func (p *equal) compareCall(lhs, rhs string, msg *protogen.Message, nullable, isCustomMap bool, customMapKeys string) {
 	if !nullable {
 		// The p != q check is mostly intended to catch the lhs = nil, rhs = nil case in which we would pointlessly
 		// allocate not just one but two empty values. However, it also provides us with an extra scope to establish
@@ -244,15 +269,24 @@ func (p *equal) compareCall(lhs, rhs string, msg *protogen.Message, nullable boo
 	}
 	if msg != nil && msg.Desc != nil && msg.Desc.ParentFile() != nil && p.IsLocalMessage(msg) {
 		p.P(`if !`, lhs, `.`, equalName, `(`, rhs, `) {`)
+		if isCustomMap {
+			p.P(`	`, customMapKeys, ` = false`)
+		}
 		p.P(`	return false`)
 		p.P(`}`)
 		return
 	}
 	p.P(`if equal, ok := interface{}(`, lhs, `).(interface { `, equalName, `(*`, p.QualifiedGoIdent(msg.GoIdent), `) bool }); ok {`)
 	p.P(`	if !equal.`, equalName, `(`, rhs, `) {`)
+	if isCustomMap {
+		p.P(`		`, customMapKeys, ` = false`)
+	}
 	p.P(`		return false`)
 	p.P(`	}`)
 	p.P(`} else if !`, p.Ident("google.golang.org/protobuf/proto", "Equal"), `(`, lhs, `, `, rhs, `) {`)
+	if isCustomMap {
+		p.P(`	`, customMapKeys, ` = false`)
+	}
 	p.P(`	return false`)
 	p.P(`}`)
 }

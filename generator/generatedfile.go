@@ -14,6 +14,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+// Third-part library
+var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/dolthub/swiss")
+
 type GeneratedFile struct {
 	*protogen.GeneratedFile
 	Ext           *Extensions
@@ -94,7 +97,7 @@ func (p *GeneratedFile) FieldGoType(field *protogen.Field) (goType string, point
 	case field.Desc.IsMap():
 		keyType, _ := p.FieldGoType(field.Message.Fields[0])
 		valType, _ := p.FieldGoType(field.Message.Fields[1])
-		return fmt.Sprintf("map[%v]%v", keyType, valType), false
+		return fmt.Sprintf("*%s[%v, %v]", p.QualifiedGoIdent(swissMapPackage.Ident("Map")), keyType, valType), false
 	}
 	return goType, pointer
 }

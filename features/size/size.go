@@ -75,7 +75,9 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 	fieldname := field.GoName
 	nullable := field.Message != nil || (!oneof && field.Desc.HasPresence())
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
-	if repeated {
+	if field.Desc.IsMap() {
+		p.P(`if m.`, fieldname, `.Count() > 0 {`)
+	} else if repeated {
 		p.P(`if len(m.`, fieldname, `) > 0 {`)
 	} else if nullable {
 		p.P(`if m.`, fieldname, ` != nil {`)
@@ -170,7 +172,10 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 			fieldKeySize := generator.KeySize(field.Desc.Number(), generator.ProtoWireType(field.Desc.Kind()))
 			keyKeySize := generator.KeySize(1, generator.ProtoWireType(field.Message.Fields[0].Desc.Kind()))
 			valueKeySize := generator.KeySize(2, generator.ProtoWireType(field.Message.Fields[1].Desc.Kind()))
-			p.P(`for k, v := range m.`, fieldname, ` { `)
+
+			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
+			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
+			p.P(`m.`, fieldname, `.Iter(func(k `, goTypK, `, v `, goTypV, `) bool {`)
 			p.P(`_ = k`)
 			p.P(`_ = v`)
 			sum := []string{strconv.Itoa(keyKeySize)}
@@ -222,7 +227,8 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 			}
 			p.P(`mapEntrySize := `, strings.Join(sum, "+"))
 			p.P(`n+=mapEntrySize+`, fieldKeySize, `+sov(uint64(mapEntrySize))`)
-			p.P(`}`)
+			p.P(`return true`)
+			p.P(`})`)
 		} else if field.Desc.IsList() {
 			p.P(`for _, e := range m.`, fieldname, ` { `)
 			p.messageSize("e", sizeName, field.Message)

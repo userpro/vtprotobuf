@@ -88,10 +88,7 @@ func (p *pool) message(message *protogen.Message) {
 			// 	p.P(`for k, v := range `, tmpVarName, ` {`)
 			// 	p.P(`v.ReturnToVTPool()`)
 			// } else {
-			p.P(`for k := range `, tmpVarName, ` {`)
-			// }
-			p.P(`delete(`, tmpVarName, `, k)`)
-			p.P(`}`)
+			p.P(tmpVarName, `.Clear()`)
 			saved = append(saved, field)
 		} else {
 			switch field.Desc.Kind() {
