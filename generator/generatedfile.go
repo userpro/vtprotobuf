@@ -15,7 +15,7 @@ import (
 )
 
 // Third-part library
-var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/dolthub/swiss")
+var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/swiss")
 
 type GeneratedFile struct {
 	*protogen.GeneratedFile

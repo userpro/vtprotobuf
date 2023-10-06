@@ -14,6 +14,8 @@ func init() {
 	})
 }
 
+var linearPoolPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/linearpool")
+
 type pool struct {
 	*generator.GeneratedFile
 	once bool
@@ -42,9 +44,11 @@ func (p *pool) message(message *protogen.Message) {
 	p.once = true
 	ccTypeName := message.GoIdent
 
-	p.P(`var vtprotoPool_`, ccTypeName, ` = `, p.Ident("sync", "Pool"), `{`)
+	p.P(`var vtprotoPool_`, ccTypeName, `Wrapper = `, p.Ident("sync", "Pool"), `{`)
 	p.P(`New: func() interface{} {`)
-	p.P(`return &`, message.GoIdent, `{}`)
+	p.P(`return &`, ccTypeName, `Wrapper{`)
+	p.P(`ac: `, linearPoolPackage.Ident("NewAlloctorFromPool(),"))
+	p.P(`}`)
 	p.P(`},`)
 	p.P(`}`)
 
@@ -146,14 +150,14 @@ func (p *pool) message(message *protogen.Message) {
 	}
 	p.P(`}`)
 
-	p.P(`func (m *`, ccTypeName, `) ReturnToVTPool() {`)
+	p.P(`func (m *`, ccTypeName, `Wrapper) ReturnToVTPool() {`)
 	p.P(`if m != nil {`)
-	p.P(`m.ResetVT()`)
-	p.P(`vtprotoPool_`, ccTypeName, `.Put(m)`)
+	p.P(`m.ac.ReturnAlloctorToPool()`)
+	p.P(`vtprotoPool_`, ccTypeName, `Wrapper.Put(m)`)
 	p.P(`}`)
 	p.P(`}`)
 
-	p.P(`func `, ccTypeName, `FromVTPool() *`, ccTypeName, `{`)
-	p.P(`return vtprotoPool_`, ccTypeName, `.Get().(*`, ccTypeName, `)`)
+	p.P(`func `, ccTypeName, `WrapperFromVTPool() *`, ccTypeName, `Wrapper{`)
+	p.P(`return vtprotoPool_`, ccTypeName, `Wrapper.Get().(*`, ccTypeName, `Wrapper)`)
 	p.P(`}`)
 }

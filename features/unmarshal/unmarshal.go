@@ -18,7 +18,8 @@ import (
 )
 
 // Third-part library
-var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/dolthub/swiss")
+var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/swiss")
+var linearPoolPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/linearpool")
 
 func init() {
 	generator.RegisterFeature("unmarshal", func(gen *generator.GeneratedFile) generator.FeatureGenerator {
@@ -134,30 +135,18 @@ func (p *unmarshal) GenerateHelpers() {
 	`)
 }
 
-func (p *unmarshal) decodeMessage(varName, buf string, message *protogen.Message, isUnsafe bool) {
+func (p *unmarshal) decodeMessage(varName, buf string, message *protogen.Message) {
 	local := p.IsLocalMessage(message)
 
 	if local {
-		if isUnsafe {
-			p.P(`if err := `, varName, `.UnmarshalVTUnSafe(`, buf, `); err != nil {`)
-		} else {
-			p.P(`if err := `, varName, `.UnmarshalVT(`, buf, `); err != nil {`)
-		}
+		p.P(`if err := `, varName, `.UnmarshalVT(ac, `, buf, `); err != nil {`)
 		p.P(`return err`)
 		p.P(`}`)
 	} else {
 		p.P(`if unmarshal, ok := interface{}(`, varName, `).(interface{`)
-		if isUnsafe {
-			p.P(`UnmarshalVTUnSafe([]byte) error`)
-		} else {
-			p.P(`UnmarshalVT([]byte) error`)
-		}
+		p.P(`UnmarshalVT(*`, linearPoolPackage.Ident("Allocator"), `,[]byte) error`)
 		p.P(`}); ok{`)
-		if isUnsafe {
-			p.P(`if err := unmarshal.UnmarshalVTUnSafe(`, buf, `); err != nil {`)
-		} else {
-			p.P(`if err := unmarshal.UnmarshalVT(`, buf, `); err != nil {`)
-		}
+		p.P(`if err := unmarshal.UnmarshalVT(ac,`, buf, `); err != nil {`)
 		p.P(`return err`)
 		p.P(`}`)
 		p.P(`} else {`)
@@ -226,10 +215,12 @@ func (p *unmarshal) declareMapField(varName string, nullable bool, field *protog
 		if nullable {
 			p.P(`var `, varName, ` *`, msgname)
 		} else {
-			p.P(varName, ` := &`, msgname, `{}`)
+			p.P(varName, ` := `, linearPoolPackage.Ident("New"), `[`, msgname, `](ac)`)
+			// p.P(varName, ` := &`, msgname, `{}`)
 		}
 	case protoreflect.BytesKind:
-		p.P(varName, ` := []byte{}`)
+		p.P(varName, ` := `, linearPoolPackage.Ident("NewSlice"), `[byte](ac,`, `0,8)`)
+		// p.P(varName, ` := []byte{}`)
 	case protoreflect.Uint32Kind:
 		p.P(`var `, varName, ` uint32`)
 	case protoreflect.EnumKind:
@@ -245,7 +236,7 @@ func (p *unmarshal) declareMapField(varName string, nullable bool, field *protog
 	}
 }
 
-func (p *unmarshal) mapField(varName string, field *protogen.Field, isUnsafe bool) {
+func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 	switch field.Desc.Kind() {
 	case protoreflect.DoubleKind:
 		p.P(`var `, varName, `temp uint64`)
@@ -283,12 +274,8 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field, isUnsafe boo
 		p.P(`if postStringIndex`, varName, ` > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		if isUnsafe {
-			p.P(`v := dAtA[iNdEx:postStringIndex`, varName, `]`)
-			p.P(varName, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-		} else {
-			p.P(varName, ` = `, "string", `(dAtA[iNdEx:postStringIndex`, varName, `])`)
-		}
+		p.P(`v := dAtA[iNdEx:postStringIndex`, varName, `]`)
+		p.P(varName, ` = `, `ac.NewString`, `(*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v)))`)
 		p.P(`iNdEx = postStringIndex`, varName)
 	case protoreflect.MessageKind:
 		p.P(`var mapmsglen int`)
@@ -305,12 +292,9 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field, isUnsafe boo
 		p.P(`}`)
 		buf := `dAtA[iNdEx:postmsgIndex]`
 		// Comment: 对 map 的 message value 进行 pool 无收益
-		// if p.ShouldPool(field.Message) {
-		// 	p.P(varName, ` = `, p.noStarOrSliceType(field), `FromVTPool()`)
-		// } else {
-		p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
-		// }
-		p.decodeMessage(varName, buf, field.Message, isUnsafe)
+		p.P(varName, ` := `, linearPoolPackage.Ident("New"), `[`, p.noStarOrSliceType(field), `](ac)`)
+		// p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
+		p.decodeMessage(varName, buf, field.Message)
 		p.P(`iNdEx = postmsgIndex`)
 	case protoreflect.BytesKind:
 		p.P(`var mapbyteLen uint64`)
@@ -326,14 +310,11 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field, isUnsafe boo
 		p.P(`if postbytesIndex > l {`)
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
-		if isUnsafe {
-			p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&`, varName, `))`)
-			p.P(`x[2] = x[1]`)
-		} else {
-			p.P(varName, ` = make([]byte, mapbyteLen)`)
-			p.P(`copy(`, varName, `, dAtA[iNdEx:postbytesIndex])`)
-		}
+		p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
+		p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&`, varName, `))`)
+		p.P(`x[2] = x[1]`)
+		p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+		p.P(varName, ` = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
 		p.P(`iNdEx = postbytesIndex`)
 	case protoreflect.Uint32Kind:
 		p.decodeVarint(varName, "uint32")
@@ -368,7 +349,7 @@ func (p *unmarshal) noStarOrSliceType(field *protogen.Field) string {
 	return typ
 }
 
-func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *protogen.Message, proto3 bool, isUnsafe bool) {
+func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *protogen.Message, proto3 bool) {
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
 	typ := p.noStarOrSliceType(field)
 	oneof := field.Oneof != nil && !field.Oneof.Desc.IsSynthetic()
@@ -379,128 +360,188 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`var v uint64`)
 		p.decodeFixed64("v", "uint64")
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, "(", p.Ident("math", `Float64frombits`), `(v))}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = `, typ, "(", p.Ident("math", `Float64frombits`), `(v))`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`v2 := `, typ, "(", p.Ident("math", "Float64frombits"), `(v))`)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v2)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v2)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, "(", p.Ident("math", "Float64frombits"), `(v))`)
 		} else {
-			p.P(`v2 := `, typ, "(", p.Ident("math", "Float64frombits"), `(v))`)
-			p.P(`m.`, fieldname, ` = &v2`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Float64("+typ+"("+p.Ident("math", "Float64frombits")+`(v))`+")"))
 		}
 	case protoreflect.FloatKind:
 		p.P(`var v uint32`)
 		p.decodeFixed32("v", "uint32")
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, "(", p.Ident("math", "Float32frombits"), `(v))}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = `, typ, "(", p.Ident("math", `Float32frombits`), `(v))`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`v2 := `, typ, "(", p.Ident("math", "Float32frombits"), `(v))`)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v2)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v2)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, "(", p.Ident("math", "Float32frombits"), `(v))`)
 		} else {
-			p.P(`v2 := `, typ, "(", p.Ident("math", "Float32frombits"), `(v))`)
-			p.P(`m.`, fieldname, ` = &v2`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Float32("+typ+"("+p.Ident("math", "Float32frombits")+`(v))`+")"))
 		}
 	case protoreflect.Int64Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int64("+typ+`(v))`))
 		}
 	case protoreflect.Uint64Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Uint64("+typ+`(v))`))
 		}
 	case protoreflect.Int32Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int32("+typ+`(v))`))
+		}
+	case protoreflect.Uint32Kind:
+		if oneof {
+			p.P(`var v `, typ)
+			p.decodeVarint("v", typ)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
+		} else if repeated {
+			p.P(`var v `, typ)
+			p.decodeVarint("v", typ)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+		} else if proto3 && !nullable {
+			p.P(`m.`, fieldname, ` = 0`)
+			p.decodeVarint("m."+fieldname, typ)
+		} else {
+			p.P(`var v `, typ)
+			p.decodeVarint("v", typ)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Uint32("+typ+`(v))`))
 		}
 	case protoreflect.Fixed64Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeFixed64("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeFixed64("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed64("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeFixed64("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int64("+typ+`(v))`))
 		}
 	case protoreflect.Fixed32Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeFixed32("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeFixed32("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed32("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeFixed32("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int32("+typ+`(v))`))
 		}
 	case protoreflect.BoolKind:
 		p.P(`var v int`)
 		p.decodeVarint("v", "int")
 		if oneof {
 			p.P(`b := `, typ, `(v != 0)`)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: b}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = b`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, typ, `(v != 0))`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", "+typ+`(v != 0))`))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, `(v != 0)`)
 		} else {
 			p.P(`b := `, typ, `(v != 0)`)
-			p.P(`m.`, fieldname, ` = &b`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Bool("+typ+`(b))`))
 		}
 	case protoreflect.StringKind:
 		p.P(`var stringLen uint64`)
@@ -517,43 +558,23 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		if oneof {
-			if isUnsafe {
-				p.P("v := dAtA[iNdEx:postIndex]")
-				// Comment: 由于 oneof 的可预测性过低 尝试缓存 oneof 字段上次的结果没有意义
-				// p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
-				// p.P(`oneof.`, field.GoName, ` = *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-				// p.P(`} else {`)
-				p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, `: *(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))}`)
-				// p.P(`}`)
-			} else {
-				// p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
-				// p.P(`oneof.`, field.GoName, ` = `, typ, `(dAtA[iNdEx:postIndex])`)
-				// p.P(`} else {`)
-				p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, `(dAtA[iNdEx:postIndex])}`)
-				// p.P(`}`)
-			}
+			p.P("v := dAtA[iNdEx:postIndex]")
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"](ac)"))
+			p.P(`v2.`, field.GoName, ` = ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))")
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
-			if isUnsafe {
-				p.P("v := dAtA[iNdEx:postIndex]")
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v)))`)
-			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, typ, `(dAtA[iNdEx:postIndex]))`)
-			}
+			p.P("v := dAtA[iNdEx:postIndex]")
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", "+`ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))"+")"))
+			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+")))")
 		} else if proto3 && !nullable {
-			if isUnsafe {
-				p.P("v := dAtA[iNdEx:postIndex]")
-				p.P(`m.`, fieldname, ` = `, `*(*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-			} else {
-				p.P(`m.`, fieldname, ` = `, typ, `(dAtA[iNdEx:postIndex])`)
-			}
+			p.P("v := dAtA[iNdEx:postIndex]")
+			p.P(`m.`, fieldname, ` = ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))")
 		} else {
-			if isUnsafe {
-				p.P("v := dAtA[iNdEx:postIndex]")
-				p.P(`m.`, fieldname, ` = (*string)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-			} else {
-				p.P(`s := `, typ, `(dAtA[iNdEx:postIndex])`)
-				p.P(`m.`, fieldname, ` = &s`)
-			}
+			p.P("v := dAtA[iNdEx:postIndex]")
+			p.P(`m.`, fieldname, ` = ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))")
 		}
 		p.P(`iNdEx = postIndex`)
 	case protoreflect.GroupKind:
@@ -564,7 +585,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.decodeVarint("groupFieldWire", "uint64")
 		p.P(`groupWireType := int(wire & 0x7)`)
 		p.P(`if groupWireType == `, strconv.Itoa(int(protowire.EndGroupType)), `{`)
-		p.decodeMessage("m."+fieldname, "dAtA[groupStart:maybeGroupEnd]", field.Message, isUnsafe)
+		p.decodeMessage("m."+fieldname, "dAtA[groupStart:maybeGroupEnd]", field.Message)
 		p.P(`break`)
 		p.P(`}`)
 		p.P(`skippy, err := skip(dAtA[iNdEx:])`)
@@ -593,11 +614,14 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			buf := `dAtA[iNdEx:postIndex]`
 			msgname := p.noStarOrSliceType(field)
 			p.P(`if oneof, ok := m.`, fieldname, `.(*`, field.GoIdent, `); ok {`)
-			p.decodeMessage("oneof."+field.GoName, buf, field.Message, isUnsafe)
+			p.decodeMessage("oneof."+field.GoName, buf, field.Message)
 			p.P(`} else {`)
-			p.P(`v := &`, msgname, `{}`)
-			p.decodeMessage("v", buf, field.Message, isUnsafe)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v := `, linearPoolPackage.Ident("New["+msgname+"]"), `(ac)`)
+			// p.P(`v := &`, msgname, `{}`)
+			p.decodeMessage("v", buf, field.Message)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v2.`, field.GoName, ` = v`)
+			// p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 			p.P(`}`)
 		} else if field.Desc.IsMap() {
 			// goTyp, _ := p.FieldGoType(field)
@@ -605,7 +629,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
 
 			p.P(`if m.`, fieldname, ` == nil {`)
-			p.P(`m.`, fieldname, ` = `, p.QualifiedGoIdent(swissMapPackage.Ident(`NewMap[`+goTypK+`, `+goTypV+`](8)`)))
+			p.P(`m.`, fieldname, ` = `, p.QualifiedGoIdent(swissMapPackage.Ident(`NewMap[`+goTypK+`, `+goTypV+`](ac, 8)`)))
 			p.P(`}`)
 
 			p.P("var mapkey ", goTypK)
@@ -618,9 +642,9 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`fieldNum := int32(wire >> 3)`)
 
 			p.P(`if fieldNum == 1 {`)
-			p.mapField("mapkey", field.Message.Fields[0], isUnsafe)
+			p.mapField("mapkey", field.Message.Fields[0])
 			p.P(`} else if fieldNum == 2 {`)
-			p.mapField("mapvalue", field.Message.Fields[1], isUnsafe)
+			p.mapField("mapvalue", field.Message.Fields[1])
 			p.P(`} else {`)
 			p.P(`iNdEx = entryPreIndex`)
 			p.P(`skippy, err := skip(dAtA[iNdEx:])`)
@@ -638,26 +662,31 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`}`)
 			p.P(`m.`, fieldname, `.Put(mapkey, mapvalue)`)
 		} else if repeated {
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice[*"+typ+"](ac, 0, 8)"))
+			p.P(`}`)
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[*"+typ+"](ac, m."+fieldname+", "+
+					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"))+`(ac)`), ")")
 				p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
 				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
-				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
+				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = `, linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"), `(ac)`)
 				p.P(`}`)
 				p.P(`}`)
 			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[*"+typ+"](ac, m."+fieldname+", "+
+					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"))+`(ac)`), ")")
 			}
 			varname := fmt.Sprintf("m.%s[len(m.%s) - 1]", fieldname, fieldname)
 			buf := `dAtA[iNdEx:postIndex]`
-			p.decodeMessage(varname, buf, field.Message, isUnsafe)
+			p.decodeMessage(varname, buf, field.Message)
 		} else {
 			p.P(`if m.`, fieldname, ` == nil {`)
-			p.P(`m.`, fieldname, ` = &`, field.Message.GoIdent, `{}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"), `(ac)`)
 			p.P(`}`)
-			p.decodeMessage("m."+fieldname, "dAtA[iNdEx:postIndex]", field.Message, isUnsafe)
+			p.decodeMessage("m."+fieldname, "dAtA[iNdEx:postIndex]", field.Message)
 		}
 		p.P(`iNdEx = postIndex`)
 
@@ -675,132 +704,136 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		if oneof {
-			if isUnsafe {
-				p.P(`v := dAtA[iNdEx:postIndex]`)
-				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-				p.P(`x[2] = x[1]`)
-			} else {
-				p.P(`v := make([]byte, postIndex-iNdEx)`)
-				p.P(`copy(v, dAtA[iNdEx:postIndex])`)
-			}
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v := dAtA[iNdEx:postIndex]`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+			p.P(`x[2] = x[1]`)
+			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+			p.P(`v2 = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
+			p.P(`v3 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v3.`, field.GoName, ` = v2`)
+			p.P(`m.`, fieldname, ` = v3`)
 		} else if repeated {
-			if isUnsafe {
-				p.P(`v := dAtA[iNdEx:postIndex]`)
-				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-				p.P(`x[2] = x[1]`)
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
-			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, make([]byte, postIndex-iNdEx))`)
-				p.P(`copy(m.`, fieldname, `[len(m.`, fieldname, `)-1], dAtA[iNdEx:postIndex])`)
-			}
-		} else {
-			if isUnsafe {
-				p.P(`m.`, fieldname, ` = dAtA[iNdEx:postIndex]`)
-				p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&m.`, fieldname, `))`)
-				p.P(`x[2] = x[1]`)
-			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `[:0] , dAtA[iNdEx:postIndex]...)`)
-			}
 			p.P(`if m.`, fieldname, ` == nil {`)
-			p.P(`m.`, fieldname, ` = []byte{}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
+			p.P(`v := dAtA[iNdEx:postIndex]`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
+			p.P(`x[2] = x[1]`)
+			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+			p.P(`v2 = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[+"+typ+"+]"), `(ac, m.`, fieldname, `, v2)`)
+		} else {
+			p.P(`v := dAtA[iNdEx:postIndex]`)
+			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&m.`, fieldname, `))`)
+			p.P(`x[2] = x[1]`)
+			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+			p.P(`v2 = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
+			p.P(`m.`, fieldname, ` = v2`)
 		}
 		p.P(`iNdEx = postIndex`)
-	case protoreflect.Uint32Kind:
-		if oneof {
-			p.P(`var v `, typ)
-			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
-		} else if repeated {
-			p.P(`var v `, typ)
-			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
-		} else if proto3 && !nullable {
-			p.P(`m.`, fieldname, ` = 0`)
-			p.decodeVarint("m."+fieldname, typ)
-		} else {
-			p.P(`var v `, typ)
-			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
-		}
 	case protoreflect.EnumKind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v2.`, field.GoName, `= v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeVarint("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+typ+"]"), `(ac)`)
+			p.P(`*v2 = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		}
 	case protoreflect.Sfixed32Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeFixed32("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v2.`, field.GoName, `= v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeFixed32("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed32("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeFixed32("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int32(v)"))
 		}
 	case protoreflect.Sfixed64Kind:
 		if oneof {
 			p.P(`var v `, typ)
 			p.decodeFixed64("v", typ)
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v2.`, field.GoName, `= v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
 			p.P(`var v `, typ)
 			p.decodeFixed64("v", typ)
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed64("m."+fieldname, typ)
 		} else {
 			p.P(`var v `, typ)
 			p.decodeFixed64("v", typ)
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int64(v)"))
 		}
 	case protoreflect.Sint32Kind:
 		p.P(`var v `, typ)
 		p.decodeVarint("v", typ)
 		p.P(`v = `, typ, `((uint32(v) >> 1) ^ uint32(((v&1)<<31)>>31))`)
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v2.`, field.GoName, `= v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = v`)
 		} else {
-			p.P(`m.`, fieldname, ` = &v`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int32(v)"))
 		}
 	case protoreflect.Sint64Kind:
 		p.P(`var v uint64`)
 		p.decodeVarint("v", "uint64")
 		p.P(`v = (v >> 1) ^ uint64((int64(v&1)<<63)>>63)`)
 		if oneof {
-			p.P(`m.`, fieldname, ` = &`, field.GoIdent, `{`, field.GoName, ": ", typ, `(v)}`)
+			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`v2.`, field.GoName, `= v`)
+			p.P(`m.`, fieldname, ` = v2`)
 		} else if repeated {
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, `, typ, `(v))`)
+			p.P(`if m.`, fieldname, ` == nil {`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
+			p.P(`}`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, `(v)`)
 		} else {
-			p.P(`v2 := `, typ, `(v)`)
-			p.P(`m.`, fieldname, ` = &v2`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Int64(v)"))
 		}
 	default:
 		panic("not implemented")
@@ -818,7 +851,7 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 	wireType := generator.ProtoWireType(field.Desc.Kind())
 	if field.Desc.IsList() && wireType != protowire.BytesType {
 		p.P(`if wireType == `, strconv.Itoa(int(wireType)), `{`)
-		p.fieldItem(field, fieldname, message, false, isUnsafe)
+		p.fieldItem(field, fieldname, message, false)
 		p.P(`} else if wireType == `, strconv.Itoa(int(protowire.BytesType)), `{`)
 		p.P(`var packedLen int`)
 		p.decodeVarint("packedLen", "int")
@@ -858,11 +891,14 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 		}
 
 		fieldtyp, _ := p.FieldGoType(field)
-		p.P(`m.`, fieldname, ` = make(`, fieldtyp, `, 0, elementCount)`)
+		if field.Desc.IsList() {
+			fieldtyp = fieldtyp[2:]
+		}
+		p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, 0, elementCount)`)
 		p.P(`}`)
 
 		p.P(`for iNdEx < postIndex {`)
-		p.fieldItem(field, fieldname, message, false, isUnsafe)
+		p.fieldItem(field, fieldname, message, false)
 		p.P(`}`)
 		p.P(`} else {`)
 		p.P(`return `, p.Ident("fmt", "Errorf"), `("proto: wrong wireType = %d for field `, errFieldname, `", wireType)`)
@@ -871,7 +907,7 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 		p.P(`if wireType != `, strconv.Itoa(int(wireType)), `{`)
 		p.P(`return `, p.Ident("fmt", "Errorf"), `("proto: wrong wireType = %d for field `, errFieldname, `", wireType)`)
 		p.P(`}`)
-		p.fieldItem(field, fieldname, message, proto3, isUnsafe)
+		p.fieldItem(field, fieldname, message, proto3)
 	}
 
 	if field.Desc.Cardinality() == protoreflect.Required {
@@ -901,7 +937,7 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	ccTypeName := message.GoIdent
 	required := message.Desc.RequiredNumbers()
 
-	p.P(`func (m *`, ccTypeName, `) UnmarshalVT(dAtA []byte) error {`)
+	p.P(`func (m *`, ccTypeName, `) UnmarshalVT(ac *`, linearPoolPackage.Ident("Allocator"), `,`, `dAtA []byte) error {`)
 	if required.Len() > 0 {
 		p.P(`var hasFields [`, strconv.Itoa(1+(required.Len()-1)/64), `]uint64`)
 	}
@@ -982,5 +1018,6 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	p.P(`return nil`)
 	p.P(`}`)
 
-	p.messageUnsafe(proto3, message)
+	// todo
+	// p.messageUnsafe(proto3, message)
 }
