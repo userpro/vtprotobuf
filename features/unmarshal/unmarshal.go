@@ -20,6 +20,7 @@ import (
 // Third-part library
 var swissMapPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/swiss")
 var linearPoolPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/linearpool")
+var vbytePackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/vbyte")
 
 func init() {
 	generator.RegisterFeature("unmarshal", func(gen *generator.GeneratedFile) generator.FeatureGenerator {
@@ -216,11 +217,9 @@ func (p *unmarshal) declareMapField(varName string, nullable bool, field *protog
 			p.P(`var `, varName, ` *`, msgname)
 		} else {
 			p.P(varName, ` := `, linearPoolPackage.Ident("New"), `[`, msgname, `](ac)`)
-			// p.P(varName, ` := &`, msgname, `{}`)
 		}
 	case protoreflect.BytesKind:
-		p.P(varName, ` := `, linearPoolPackage.Ident("NewSlice"), `[byte](ac,`, `0,8)`)
-		// p.P(varName, ` := []byte{}`)
+		p.P(varName, ` := `, linearPoolPackage.Ident("NewSlice"), `[byte](ac,`, `0, 8)`)
 	case protoreflect.Uint32Kind:
 		p.P(`var `, varName, ` uint32`)
 	case protoreflect.EnumKind:
@@ -568,7 +567,6 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", "+`ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))"+")"))
-			p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+")))")
 		} else if proto3 && !nullable {
 			p.P("v := dAtA[iNdEx:postIndex]")
 			p.P(`m.`, fieldname, ` = ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))")
@@ -892,14 +890,23 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 
 		fieldtyp, _ := p.FieldGoType(field)
 		if field.Desc.IsList() {
-			fieldtyp = fieldtyp[2:]
+			fieldtyp = fieldtyp[2:] // 去除 "[]"
 		}
-		p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, 0, elementCount)`)
-		p.P(`}`)
-
-		p.P(`for iNdEx < postIndex {`)
-		p.fieldItem(field, fieldname, message, false)
-		p.P(`}`)
+		if field.Desc.Kind() == protoreflect.Int32Kind || field.Desc.Kind() == protoreflect.Uint32Kind { // 对于 int32 uint32 启用 simd
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, elementCount, elementCount)`)
+			p.P(`}`)
+			p.P(`consumedBytes := `, vbytePackage.Ident("DecodeGroup(&dAtA[iNdEx], (*uint32)(unsafe.Pointer(&m."+fieldname+"[0])), uint64(elementCount))"))
+			p.P(`if iNdEx+int(consumedBytes) != postIndex {`)
+			p.P(`return ErrUnexpectedEndOfGroup`)
+			p.P(`}`)
+			p.P(`iNdEx = postIndex`)
+		} else {
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, 0, elementCount)`)
+			p.P(`}`)
+			p.P(`for iNdEx < postIndex {`)
+			p.fieldItem(field, fieldname, message, false)
+			p.P(`}`)
+		}
 		p.P(`} else {`)
 		p.P(`return `, p.Ident("fmt", "Errorf"), `("proto: wrong wireType = %d for field `, errFieldname, `", wireType)`)
 		p.P(`}`)
@@ -986,7 +993,10 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 		p.P(`iNdEx += skippy`)
 		p.P(`} else {`)
 	}
-	p.P(`m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)`)
+	p.P(`if m.unknownFields == nil {`)
+	p.P(`m.unknownFields = `, linearPoolPackage.Ident("NewSlice[byte](ac, 0, 8)"))
+	p.P(`}`)
+	p.P(`m.unknownFields = `, linearPoolPackage.Ident("Append[byte](ac, m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)"))
 	p.P(`iNdEx += skippy`)
 	if message.Desc.ExtensionRanges().Len() > 0 {
 		p.P(`}`)

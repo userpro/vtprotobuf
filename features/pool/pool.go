@@ -45,9 +45,11 @@ func (p *pool) message(message *protogen.Message) {
 	ccTypeName := message.GoIdent
 
 	p.P(`var vtprotoPool_`, ccTypeName, `Wrapper = `, p.Ident("sync", "Pool"), `{`)
-	p.P(`New: func() interface{} {`)
+	p.P(`New: func() any {`)
+	p.P(`ac := `, linearPoolPackage.Ident("NewAlloctorFromPool("+p.QualifiedGoIdent(linearPoolPackage.Ident("DiKB"))+"*8"+")")) // TODO
 	p.P(`return &`, ccTypeName, `Wrapper{`)
-	p.P(`ac: `, linearPoolPackage.Ident("NewAlloctorFromPool(),"))
+	p.P(`ac: ac,`)
+	p.P(`raw: `, linearPoolPackage.Ident("New["+ccTypeName.GoName+"](ac),"))
 	p.P(`}`)
 	p.P(`},`)
 	p.P(`}`)
@@ -151,6 +153,14 @@ func (p *pool) message(message *protogen.Message) {
 	p.P(`}`)
 
 	p.P(`func (m *`, ccTypeName, `Wrapper) ReturnToVTPool() {`)
+	p.P(`if m != nil {`)
+	p.P(`m.raw.ResetVT()`)
+	p.P(`vtprotoPool_`, ccTypeName, `Wrapper.Put(m)`)
+	p.P(`}`)
+	p.P(`}`)
+
+	// 如果在 pb 之外使用了 alloctor 分配内存的话 需要调用该方法
+	p.P(`func (m *`, ccTypeName, `Wrapper) FreeToPool() {`)
 	p.P(`if m != nil {`)
 	p.P(`m.ac.ReturnAlloctorToPool()`)
 	p.P(`vtprotoPool_`, ccTypeName, `Wrapper.Put(m)`)
