@@ -666,23 +666,23 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
 				p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[*"+typ+"](ac, m."+fieldname+", "+
-					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"))+`(ac)`), ")")
+					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+typ+"]"))+`(ac)`), ")")
 				p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
 				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
-				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = `, linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"), `(ac)`)
+				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = `, linearPoolPackage.Ident("New["+typ+"]"), `(ac)`)
 				p.P(`}`)
 				p.P(`}`)
 			} else {
 				p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[*"+typ+"](ac, m."+fieldname+", "+
-					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"))+`(ac)`), ")")
+					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+typ+"]"))+`(ac)`), ")")
 			}
 			varname := fmt.Sprintf("m.%s[len(m.%s) - 1]", fieldname, fieldname)
 			buf := `dAtA[iNdEx:postIndex]`
 			p.decodeMessage(varname, buf, field.Message)
 		} else {
 			p.P(`if m.`, fieldname, ` == nil {`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("New["+field.Message.GoIdent.GoName+"]"), `(ac)`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("New["+typ+"]"), `(ac)`)
 			p.P(`}`)
 			p.decodeMessage("m."+fieldname, "dAtA[iNdEx:postIndex]", field.Message)
 		}
