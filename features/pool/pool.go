@@ -162,7 +162,8 @@ func (p *pool) message(message *protogen.Message) {
 	// 如果在 pb 之外使用了 alloctor 分配内存的话 需要调用该方法
 	p.P(`func (m *`, ccTypeName, `Wrapper) FreeToPool() {`)
 	p.P(`if m != nil {`)
-	p.P(`m.ac.ReturnAlloctorToPool()`)
+	p.P(`m.ac.Reset()`)
+	p.P(`m.raw = `, linearPoolPackage.Ident("New["+ccTypeName.GoName+"](m.ac)"))
 	p.P(`vtprotoPool_`, ccTypeName, `Wrapper.Put(m)`)
 	p.P(`}`)
 	p.P(`}`)

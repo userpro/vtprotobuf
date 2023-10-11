@@ -179,11 +179,12 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 			p.P(keysName, ` := true`)
 			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
 			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
-			p.P(lhs, `.Iter(func (i `, goTypK, `, vx `, goTypV, `) bool {`)
+			p.P(lhs, `.Iter(func (i `, goTypK, `, vx `, goTypV, `) (stop bool) {`)
 			p.P(`vy, ok := `, rhs, `.Get(i)`)
 			p.P(`if !ok {`)
 			p.P(keysName, ` = false`)
-			p.P(`return false`)
+			p.P(`stop = true`)
+			p.P(`return`)
 			p.P(`}`)
 
 			field = field.Message.Fields[1]

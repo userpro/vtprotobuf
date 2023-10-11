@@ -175,7 +175,7 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 
 			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
 			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
-			p.P(`m.`, fieldname, `.Iter(func(k `, goTypK, `, v `, goTypV, `) bool {`)
+			p.P(`m.`, fieldname, `.Iter(func(k `, goTypK, `, v `, goTypV, `) (stop bool) {`)
 			p.P(`_ = k`)
 			p.P(`_ = v`)
 			sum := []string{strconv.Itoa(keyKeySize)}
@@ -227,7 +227,7 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 			}
 			p.P(`mapEntrySize := `, strings.Join(sum, "+"))
 			p.P(`n+=mapEntrySize+`, fieldKeySize, `+sov(uint64(mapEntrySize))`)
-			p.P(`return true`)
+			p.P(`return`)
 			p.P(`})`)
 		} else if field.Desc.IsList() {
 			p.P(`for _, e := range m.`, fieldname, ` { `)

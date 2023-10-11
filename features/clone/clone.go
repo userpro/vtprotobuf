@@ -157,9 +157,9 @@ func (p *clone) cloneField(lhsBase, rhsBase string, allFieldsNullable bool, fiel
 				msg = valueField.Message
 				goTypK, _ := p.FieldGoType(field.Message.Fields[0])
 				goTypV, _ := p.FieldGoType(field.Message.Fields[1])
-				p.P(rhs, `.Iter(func (k `, goTypK, `, v `, goTypV, `) bool {`)
+				p.P(rhs, `.Iter(func (k `, goTypK, `, v `, goTypV, `) (stop bool) {`)
 				p.cloneFieldSingular("tmpContainer", "v", fieldKind, msg, true)
-				p.P(`return true`)
+				p.P(`return`)
 				p.P(`})`)
 			} else {
 				p.P(`for k, v := range `, rhs, ` {`)
@@ -202,7 +202,8 @@ func (p *clone) body(allFieldsNullable bool, ccTypeName string, fields []*protog
 
 	// Make a first pass over the fields, in which we initialize all non-reference fields via direct
 	// struct literal initialization, and extract all other (refernece) fields for a second pass.
-	p.P(`r := &`, ccTypeName, `{`)
+	// p.P(`r := &`, ccTypeName, `{`)
+	p.P(`r := `, linearPoolPackage.Ident("New["+ccTypeName+"]"), `(ac)`)
 	var refFields []*protogen.Field
 	oneofFields := make(map[string]struct{}, len(fields))
 
@@ -218,18 +219,20 @@ func (p *clone) body(allFieldsNullable bool, ccTypeName string, fields []*protog
 		}
 
 		if !isReference(allFieldsNullable, field) {
-			p.P(field.GoName, `: m.`, field.GoName, `,`)
+			// p.P(field.GoName, `: m.`, field.GoName, `,`)
+			p.P(`r.`, field.GoName, `= m.`, field.GoName)
 			continue
 		}
 		// Shortcut: for types where we know that an optimized clone method exists, we can call it directly as it is
 		// nil-safe.
 		if field.Desc.Cardinality() != protoreflect.Repeated && field.Message != nil && p.IsLocalMessage(field.Message) {
-			p.P(field.GoName, `: m.`, field.GoName, `.`, cloneName, `(ac),`)
+			// p.P(field.GoName, `: m.`, field.GoName, `.`, cloneName, `(ac),`)
+			p.P(`r.`, field.GoName, `= m.`, field.GoName, `.`, cloneName, `(ac)`)
 			continue
 		}
 		refFields = append(refFields, field)
 	}
-	p.P(`}`)
+	// p.P(`}`)
 
 	// Generate explicit assignment statements for all reference fields.
 	for _, field := range refFields {
@@ -239,8 +242,10 @@ func (p *clone) body(allFieldsNullable bool, ccTypeName string, fields []*protog
 	if cloneUnknownFields {
 		// Clone unknown fields, if any
 		p.P(`if len(m.unknownFields) > 0 {`)
-		p.P(`r.unknownFields = make([]byte, len(m.unknownFields))`)
-		p.P(`copy(r.unknownFields, m.unknownFields)`)
+		p.P(`r.unknownFields = `, linearPoolPackage.Ident("NewSlice[byte](ac, 0, len(m.unknownFields))"))
+		p.P(`r.unknownFields = `, linearPoolPackage.Ident("Append[byte](ac, r.unknownFields, m.unknownFields...)"))
+		// p.P(`r.unknownFields = make([]byte, len(m.unknownFields))`)
+		// p.P(`copy(r.unknownFields, m.unknownFields)`)
 		p.P(`}`)
 	}
 

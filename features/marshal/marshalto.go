@@ -393,7 +393,7 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 			if p.Stable && keyKind != protoreflect.BoolKind {
 				keysName := `keysFor` + fieldname
 				p.P(keysName, ` := make([]`, goTypK, `, 0, len(m.`, fieldname, `))`)
-				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) bool {`)
+				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) (stop bool) {`)
 				p.P(keysName, ` = append(`, keysName, `, `, goTypK, `(k))`)
 				p.P(`})`)
 				p.P(p.Ident("sort", "Slice"), `(`, keysName, `, func(i, j int) bool {`)
@@ -401,7 +401,7 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 				p.P(`})`)
 				val = p.reverseListRange(keysName)
 			} else {
-				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) bool {`)
+				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) (stop bool) {`)
 				val = "k"
 			}
 			p.P(`baseI := i`)
@@ -414,7 +414,7 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 			p.encodeKey(1, generator.ProtoWireType(keyKind))
 			p.encodeVarint(`baseI - i`)
 			p.encodeKey(fieldNumber, wireType)
-			p.P(`return true`)
+			p.P(`return`)
 			p.P(`})`)
 
 			p.P(`if `, errKeysName, ` != nil {`)
