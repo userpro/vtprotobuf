@@ -46,7 +46,7 @@ func (p *pool) message(message *protogen.Message) {
 
 	p.P(`var vtprotoPool_`, ccTypeName, `Wrapper = `, p.Ident("sync", "Pool"), `{`)
 	p.P(`New: func() any {`)
-	p.P(`ac := `, linearPoolPackage.Ident("NewAlloctorFromPool("+p.QualifiedGoIdent(linearPoolPackage.Ident("DiKB"))+"*8"+")")) // TODO
+	p.P(`ac := `, linearPoolPackage.Ident("NewAlloctorFromPool("+p.QualifiedGoIdent(linearPoolPackage.Ident("DiKB"))+"*4"+")")) // TODO
 	p.P(`return &`, ccTypeName, `Wrapper{`)
 	p.P(`ac: ac,`)
 	p.P(`raw: `, linearPoolPackage.Ident("New["+ccTypeName.GoName+"](ac),"))
