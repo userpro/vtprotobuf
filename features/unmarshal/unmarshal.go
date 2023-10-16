@@ -944,6 +944,11 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	ccTypeName := message.GoIdent
 	required := message.Desc.RequiredNumbers()
 
+	// Wrapper method
+	p.P(`func (m *`, ccTypeName, `Wrapper) UnmarshalVT(dAtA []byte) error {`)
+	p.P(`return m.raw.UnmarshalVT(m.ac, dAtA)`)
+	p.P(`}`)
+
 	p.P(`func (m *`, ccTypeName, `) UnmarshalVT(ac *`, linearPoolPackage.Ident("Allocator"), `,`, `dAtA []byte) error {`)
 	if required.Len() > 0 {
 		p.P(`var hasFields [`, strconv.Itoa(1+(required.Len()-1)/64), `]uint64`)
