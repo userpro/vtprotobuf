@@ -76,7 +76,7 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 	nullable := field.Message != nil || (!oneof && field.Desc.HasPresence())
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
 	if field.Desc.IsMap() {
-		p.P(`if m.`, fieldname, `.Count() > 0 {`)
+		p.P(`if m.`, fieldname, ` != nil && m.`, fieldname, `.Count() > 0 {`)
 	} else if repeated {
 		p.P(`if len(m.`, fieldname, `) > 0 {`)
 	} else if nullable {

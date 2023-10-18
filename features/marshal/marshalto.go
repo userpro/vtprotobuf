@@ -134,7 +134,7 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 	nullable := field.Message != nil || (!oneof && field.Desc.HasPresence())
 	repeated := field.Desc.Cardinality() == protoreflect.Repeated
 	if field.Desc.IsMap() {
-		p.P(`if m.`, fieldname, `.Count() > 0 {`)
+		p.P(`if m.`, fieldname, ` != nil && m.`, fieldname, `.Count() > 0 {`)
 	} else if repeated {
 		p.P(`if len(m.`, fieldname, `) > 0 {`)
 	} else if nullable {
@@ -586,6 +586,12 @@ func (p *marshal) message(message *protogen.Message) {
 
 	var numGen counter
 	ccTypeName := message.GoIdent
+
+	// Wrapper method
+	p.P(`func (m *`, ccTypeName, `Wrapper) `, p.methodMarshal(), `() (dAtA []byte, err error) {`)
+	p.P(`return m.raw.`, p.methodMarshal(), `()`)
+	p.P(`}`)
+	p.P(``)
 
 	p.P(`func (m *`, ccTypeName, `) `, p.methodMarshal(), `() (dAtA []byte, err error) {`)
 	p.P(`if m == nil {`)

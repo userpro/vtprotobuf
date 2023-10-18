@@ -113,6 +113,7 @@ func (p *equal) message(proto3 bool, message *protogen.Message) {
 	p.P(`}`)
 	p.P(`return this.`, equalName, `(that)`)
 	p.P(`}`)
+	p.P()
 
 	for _, field := range message.Fields {
 		oneof := field.Oneof != nil && !field.Oneof.Desc.IsSynthetic()
@@ -166,16 +167,20 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 	lhs := fmt.Sprintf("this.%s", fieldname)
 	rhs := fmt.Sprintf("that.%s", fieldname)
 
-	isCustomMap := field.Desc.IsMap()
+	isSwissMap := field.Desc.IsMap()
 	if repeated {
-		if isCustomMap {
+		if isSwissMap {
+			p.P(`if `, lhs, ` != `, rhs, ` {`)
+			p.P(`	return false`)
+			p.P(`}`)
+			p.P(`if `, lhs, ` != nil {`) // 检查 swiss map 是否为 nil --- [start]
 			p.P(`if `, lhs, `.Count() != `, rhs, `.Count() {`)
 		} else {
 			p.P(`if len(`, lhs, `) != len(`, rhs, `) {`)
 		}
 		p.P(`	return false`)
 		p.P(`}`)
-		if isCustomMap {
+		if isSwissMap {
 			p.P(keysName, ` := true`)
 			goTypK, _ := p.FieldGoType(field.Message.Fields[0])
 			goTypV, _ := p.FieldGoType(field.Message.Fields[1])
@@ -183,8 +188,7 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 			p.P(`vy, ok := `, rhs, `.Get(i)`)
 			p.P(`if !ok {`)
 			p.P(keysName, ` = false`)
-			p.P(`stop = true`)
-			p.P(`return`)
+			p.P(`return true`)
 			p.P(`}`)
 
 			field = field.Message.Fields[1]
@@ -199,13 +203,13 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 	kind := field.Desc.Kind()
 	switch {
 	case isScalar(kind):
-		p.compareScalar(lhs, rhs, nullable, isCustomMap, keysName)
+		p.compareScalar(lhs, rhs, nullable, isSwissMap, keysName)
 
 	case kind == protoreflect.BytesKind:
-		p.compareBytes(lhs, rhs, nullable, isCustomMap, keysName)
+		p.compareBytes(lhs, rhs, nullable, isSwissMap, keysName)
 
 	case kind == protoreflect.MessageKind || kind == protoreflect.GroupKind:
-		p.compareCall(lhs, rhs, field.Message, nullable, isCustomMap, keysName)
+		p.compareCall(lhs, rhs, field.Message, nullable, isSwissMap, keysName)
 
 	default:
 		panic("not implemented")
@@ -213,46 +217,51 @@ func (p *equal) field(field *protogen.Field, nullable bool) {
 
 	if repeated {
 		// close for loop
-		if isCustomMap {
+		if isSwissMap {
 			p.P(`return true`)
 			p.P(`})`)
 			p.P(`if !`, keysName, ` {`)
 			p.P(`return `, keysName, ``)
 			p.P(`}`)
+			p.P(`}`) // 检查 swiss map 是否为 nil --- [end]
 		} else {
 			p.P(`}`)
 		}
 	}
 }
 
-func (p *equal) compareScalar(lhs, rhs string, nullable, isCustomMap bool, customMapKeys string) {
+func (p *equal) compareScalar(lhs, rhs string, nullable, isSwissMap bool, customMapEqlVar string) {
 	if nullable {
 		p.P(`if p, q := `, lhs, `, `, rhs, `; (p == nil && q != nil) || (p != nil && (q == nil || *p != *q)) {`)
 	} else {
 		p.P(`if `, lhs, ` != `, rhs, ` {`)
 	}
-	if isCustomMap {
-		p.P(`	`, customMapKeys, ` = false`)
+	if isSwissMap {
+		p.P(`	`, customMapEqlVar, ` = false`)
+		p.P(`	return !`, customMapEqlVar)
+	} else {
+		p.P(`	return false`)
 	}
-	p.P(`	return false`)
 	p.P(`}`)
 }
 
-func (p *equal) compareBytes(lhs, rhs string, nullable, isCustomMap bool, customMapKeys string) {
+func (p *equal) compareBytes(lhs, rhs string, nullable, isSwissMap bool, customMapEqlVar string) {
 	if nullable {
 		p.P(`if p, q := `, lhs, `, `, rhs, `; (p == nil && q != nil) || (p != nil && q == nil) || string(p) != string(q) {`)
 	} else {
 		// Inlined call to bytes.Equal()
 		p.P(`if string(`, lhs, `) != string(`, rhs, `) {`)
 	}
-	if isCustomMap {
-		p.P(`	`, customMapKeys, ` = false`)
+	if isSwissMap {
+		p.P(`	`, customMapEqlVar, ` = false`)
+		p.P(`	return !`, customMapEqlVar)
+	} else {
+		p.P(`	return false`)
 	}
-	p.P(`	return false`)
 	p.P(`}`)
 }
 
-func (p *equal) compareCall(lhs, rhs string, msg *protogen.Message, nullable, isCustomMap bool, customMapKeys string) {
+func (p *equal) compareCall(lhs, rhs string, msg *protogen.Message, nullable, isSwissMap bool, customMapEqlVar string) {
 	if !nullable {
 		// The p != q check is mostly intended to catch the lhs = nil, rhs = nil case in which we would pointlessly
 		// allocate not just one but two empty values. However, it also provides us with an extra scope to establish
@@ -270,25 +279,31 @@ func (p *equal) compareCall(lhs, rhs string, msg *protogen.Message, nullable, is
 	}
 	if msg != nil && msg.Desc != nil && msg.Desc.ParentFile() != nil && p.IsLocalMessage(msg) {
 		p.P(`if !`, lhs, `.`, equalName, `(`, rhs, `) {`)
-		if isCustomMap {
-			p.P(`	`, customMapKeys, ` = false`)
+		if isSwissMap {
+			p.P(`	`, customMapEqlVar, ` = false`)
+			p.P(`	return !`, customMapEqlVar)
+		} else {
+			p.P(`	return false`)
 		}
-		p.P(`	return false`)
 		p.P(`}`)
 		return
 	}
 	p.P(`if equal, ok := interface{}(`, lhs, `).(interface { `, equalName, `(*`, p.QualifiedGoIdent(msg.GoIdent), `) bool }); ok {`)
 	p.P(`	if !equal.`, equalName, `(`, rhs, `) {`)
-	if isCustomMap {
-		p.P(`		`, customMapKeys, ` = false`)
+	if isSwissMap {
+		p.P(`		`, customMapEqlVar, ` = false`)
+		p.P(`		return !`, customMapEqlVar)
+	} else {
+		p.P(`		return false`)
 	}
-	p.P(`		return false`)
 	p.P(`	}`)
 	p.P(`} else if !`, p.Ident("google.golang.org/protobuf/proto", "Equal"), `(`, lhs, `, `, rhs, `) {`)
-	if isCustomMap {
-		p.P(`	`, customMapKeys, ` = false`)
+	if isSwissMap {
+		p.P(`	`, customMapEqlVar, ` = false`)
+		p.P(`	return !`, customMapEqlVar)
+	} else {
+		p.P(`	return false`)
 	}
-	p.P(`	return false`)
 	p.P(`}`)
 }
 

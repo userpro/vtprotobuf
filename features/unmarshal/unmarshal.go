@@ -291,7 +291,7 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`}`)
 		buf := `dAtA[iNdEx:postmsgIndex]`
 		// Comment: 对 map 的 message value 进行 pool 无收益
-		p.P(varName, ` := `, linearPoolPackage.Ident("New"), `[`, p.noStarOrSliceType(field), `](ac)`)
+		p.P(varName, ` = `, linearPoolPackage.Ident("New"), `[`, p.noStarOrSliceType(field), `](ac)`)
 		// p.P(varName, ` = &`, p.noStarOrSliceType(field), `{}`)
 		p.decodeMessage(varName, buf, field.Message)
 		p.P(`iNdEx = postmsgIndex`)
@@ -310,10 +310,8 @@ func (p *unmarshal) mapField(varName string, field *protogen.Field) {
 		p.P(`return `, p.Ident("io", `ErrUnexpectedEOF`))
 		p.P(`}`)
 		p.P(varName, ` = dAtA[iNdEx:postbytesIndex]`)
-		p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&`, varName, `))`)
-		p.P(`x[2] = x[1]`)
-		p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
-		p.P(varName, ` = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
+		p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(`, varName, `))`)
+		p.P(varName, ` = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, `, varName, `...)`)
 		p.P(`iNdEx = postbytesIndex`)
 	case protoreflect.Uint32Kind:
 		p.decodeVarint(varName, "uint32")
@@ -619,6 +617,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.decodeMessage("v", buf, field.Message)
 			p.P(`v2 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
 			p.P(`v2.`, field.GoName, ` = v`)
+			p.P(`m.`, fieldname, ` = v2`)
 			// p.P(`m.`, fieldname, ` = &`, field.GoIdent, "{", field.GoName, `: v}`)
 			p.P(`}`)
 		} else if field.Desc.IsMap() {
@@ -703,9 +702,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		p.P(`}`)
 		if oneof {
 			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-			p.P(`x[2] = x[1]`)
-			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
 			p.P(`v2 = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
 			p.P(`v3 := `, linearPoolPackage.Ident("New["+field.GoIdent.GoName+"]"), `(ac)`)
 			p.P(`v3.`, field.GoName, ` = v2`)
@@ -715,16 +712,12 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
 			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&v))`)
-			p.P(`x[2] = x[1]`)
-			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
 			p.P(`v2 = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[+"+typ+"+]"), `(ac, m.`, fieldname, `, v2)`)
 		} else {
 			p.P(`v := dAtA[iNdEx:postIndex]`)
-			p.P(`x := (*[3]uintptr)(`, p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer")), `(&m.`, fieldname, `))`)
-			p.P(`x[2] = x[1]`)
-			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, int(x[2]))`)
+			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
 			p.P(`v2 = `, linearPoolPackage.Ident("Append[byte]"), `(ac, v2, v...)`)
 			p.P(`m.`, fieldname, ` = v2`)
 		}
@@ -892,21 +885,22 @@ func (p *unmarshal) field(proto3, oneof bool, field *protogen.Field, message *pr
 		if field.Desc.IsList() {
 			fieldtyp = fieldtyp[2:] // 去除 "[]"
 		}
-		if field.Desc.Kind() == protoreflect.Int32Kind || field.Desc.Kind() == protoreflect.Uint32Kind { // 对于 int32 uint32 启用 simd
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, elementCount, elementCount)`)
-			p.P(`}`)
-			p.P(`consumedBytes := `, vbytePackage.Ident("DecodeGroup(&dAtA[iNdEx], (*uint32)(unsafe.Pointer(&m."+fieldname+"[0])), uint64(elementCount))"))
-			p.P(`if iNdEx+int(consumedBytes) != postIndex {`)
-			p.P(`return ErrUnexpectedEndOfGroup`)
-			p.P(`}`)
-			p.P(`iNdEx = postIndex`)
-		} else {
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, 0, elementCount)`)
-			p.P(`}`)
-			p.P(`for iNdEx < postIndex {`)
-			p.fieldItem(field, fieldname, message, false)
-			p.P(`}`)
-		}
+		// TODO 启用simd存在core 待查
+		// if field.Desc.Kind() == protoreflect.Int32Kind || field.Desc.Kind() == protoreflect.Uint32Kind { // 对于 int32 uint32 启用 simd
+		// 	p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, elementCount, elementCount)`)
+		// 	p.P(`}`)
+		// 	p.P(`consumedBytes := `, vbytePackage.Ident("DecodeGroup(&dAtA[iNdEx], (*uint32)(unsafe.Pointer(&m."+fieldname+"[0])), uint64(elementCount))"))
+		// 	p.P(`if iNdEx+int(consumedBytes) != postIndex {`)
+		// 	p.P(`return ErrUnexpectedEndOfGroup`)
+		// 	p.P(`}`)
+		// 	p.P(`iNdEx = postIndex`)
+		// } else {
+		p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+fieldtyp+"]"), `(ac, 0, elementCount)`)
+		p.P(`}`)
+		p.P(`for iNdEx < postIndex {`)
+		p.fieldItem(field, fieldname, message, false)
+		p.P(`}`)
+		// }
 		p.P(`} else {`)
 		p.P(`return `, p.Ident("fmt", "Errorf"), `("proto: wrong wireType = %d for field `, errFieldname, `", wireType)`)
 		p.P(`}`)
@@ -948,6 +942,7 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	p.P(`func (m *`, ccTypeName, `Wrapper) UnmarshalVT(dAtA []byte) error {`)
 	p.P(`return m.raw.UnmarshalVT(m.ac, dAtA)`)
 	p.P(`}`)
+	p.P(``)
 
 	p.P(`func (m *`, ccTypeName, `) UnmarshalVT(ac *`, linearPoolPackage.Ident("Allocator"), `,`, `dAtA []byte) error {`)
 	if required.Len() > 0 {
@@ -1033,6 +1028,6 @@ func (p *unmarshal) message(proto3 bool, message *protogen.Message) {
 	p.P(`return nil`)
 	p.P(`}`)
 
-	// todo
+	// TODO
 	// p.messageUnsafe(proto3, message)
 }
