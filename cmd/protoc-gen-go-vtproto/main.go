@@ -42,21 +42,23 @@ func main() {
 	var allowEmpty bool
 	var features string
 	poolable := make(ObjectSet)
+	var memPoolSize int
 
 	var f flag.FlagSet
 	f.BoolVar(&allowEmpty, "allow-empty", false, "allow generation of empty files")
 	f.Var(poolable, "pool", "use memory pooling for this object")
+	f.IntVar(&memPoolSize, "mempoolsize", 0, "linear memory pool initial size(KB)")
 	f.StringVar(&features, "features", "all", "list of features to generate (separated by '+')")
 
 	protogen.Options{ParamFunc: f.Set}.Run(func(plugin *protogen.Plugin) error {
-		return generateAllFiles(plugin, strings.Split(features, "+"), poolable, allowEmpty)
+		return generateAllFiles(plugin, strings.Split(features, "+"), poolable, memPoolSize, allowEmpty)
 	})
 }
 
 var SupportedFeatures = uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
 
-func generateAllFiles(plugin *protogen.Plugin, featureNames []string, poolable ObjectSet, allowEmpty bool) error {
-	ext := &generator.Extensions{Poolable: poolable}
+func generateAllFiles(plugin *protogen.Plugin, featureNames []string, poolable ObjectSet, mempoolSize int, allowEmpty bool) error {
+	ext := &generator.Extensions{Poolable: poolable, MemPoolSize: mempoolSize}
 	gen, err := generator.NewGenerator(plugin.Files, featureNames, ext)
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@ package pool
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/planetscale/vtprotobuf/generator"
 	"google.golang.org/protobuf/compiler/protogen"
@@ -46,7 +47,11 @@ func (p *pool) message(message *protogen.Message) {
 
 	p.P(`var vtprotoPool_`, ccTypeName, `Wrapper = `, p.Ident("sync", "Pool"), `{`)
 	p.P(`New: func() any {`)
-	p.P(`ac := `, linearPoolPackage.Ident("NewAlloctorFromPool("+p.QualifiedGoIdent(linearPoolPackage.Ident("DiKB"))+"*4"+")")) // TODO(dz) 默认内存大小设置
+	if p.Ext.MemPoolSize <= 0 {
+		p.Ext.MemPoolSize = 4 // default mempoolsize = 4 KB
+	}
+	p.P(`ac := `, linearPoolPackage.Ident("NewAlloctorFromPool("+
+		p.QualifiedGoIdent(linearPoolPackage.Ident("DiKB"))+"*"+strconv.Itoa(p.Ext.MemPoolSize)+")")) // 默认内存大小设置
 	p.P(`return &`, ccTypeName, `Wrapper{`)
 	p.P(`ac: ac,`)
 	p.P(`raw: `, linearPoolPackage.Ident("New["+ccTypeName.GoName+"](ac),"))

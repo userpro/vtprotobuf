@@ -17,7 +17,8 @@ type featureHelpers struct {
 }
 
 type Extensions struct {
-	Poolable map[protogen.GoIdent]bool
+	Poolable    map[protogen.GoIdent]bool
+	MemPoolSize int // linearpool 初始化内存池大小
 }
 
 type Generator struct {
