@@ -18,6 +18,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+var linearPoolPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/linearpool")
+
 func init() {
 	generator.RegisterFeature("marshal", func(gen *generator.GeneratedFile) generator.FeatureGenerator {
 		return &marshal{GeneratedFile: gen, Stable: false, strict: false}
@@ -392,9 +394,9 @@ func (p *marshal) field(oneof bool, numGen *counter, field *protogen.Field) {
 			var val string
 			if p.Stable && keyKind != protoreflect.BoolKind {
 				keysName := `keysFor` + fieldname
-				p.P(keysName, ` := make([]`, goTypK, `, 0, len(m.`, fieldname, `))`)
+				p.P(keysName, ` := `, linearPoolPackage.Ident("NewSlice["+goTypK+"]"), `(ac, 0, len(m.`, fieldname, `))`)
 				p.P(`m.`, fieldname, `.Iter(func (k `, goTypK, `, v `, goTypV, `) (stop bool) {`)
-				p.P(keysName, ` = append(`, keysName, `, `, goTypK, `(k))`)
+				p.P(keysName, ` = `, linearPoolPackage.Ident("Append["+goTypK+"]"), `(ac, `, keysName, `,`, goTypK, `(k))`)
 				p.P(`})`)
 				p.P(p.Ident("sort", "Slice"), `(`, keysName, `, func(i, j int) bool {`)
 				p.P(`return `, keysName, `[i] < `, keysName, `[j]`)
@@ -589,16 +591,16 @@ func (p *marshal) message(message *protogen.Message) {
 
 	// Wrapper method
 	p.P(`func (m *`, ccTypeName, `Wrapper) `, p.methodMarshal(), `() (dAtA []byte, err error) {`)
-	p.P(`return m.raw.`, p.methodMarshal(), `()`)
+	p.P(`return m.raw.`, p.methodMarshal(), `(m.ac)`)
 	p.P(`}`)
 	p.P(``)
 
-	p.P(`func (m *`, ccTypeName, `) `, p.methodMarshal(), `() (dAtA []byte, err error) {`)
+	p.P(`func (m *`, ccTypeName, `) `, p.methodMarshal(), `(ac *`, linearPoolPackage.Ident("Allocator"), `) (dAtA []byte, err error) {`)
 	p.P(`if m == nil {`)
 	p.P(`return nil, nil`)
 	p.P(`}`)
 	p.P(`size := m.SizeVT()`)
-	p.P(`dAtA = make([]byte, size)`)
+	p.P(`dAtA = `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, size, size)`)
 	p.P(`n, err := m.`, p.methodMarshalToSizedBuffer(), `(dAtA[:size])`)
 	p.P(`if err != nil {`)
 	p.P(`return nil, err`)

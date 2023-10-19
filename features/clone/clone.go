@@ -94,7 +94,7 @@ func (p *clone) cloneFieldSingular(lhs, rhs string, kind protoreflect.Kind, mess
 		}
 	case kind == protoreflect.BytesKind:
 		p.P(`tmpBytes := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(`, rhs, `))`)
-		p.P(`tmpBytes = `, linearPoolPackage.Ident("Append[byte]"), `(ac, tmpBytes, `, rhs, `...)`)
+		p.P(`tmpBytes = `, linearPoolPackage.Ident("AppendMulti[byte]"), `(ac, tmpBytes, `, rhs, `...)`)
 		p.P(lhs, ` = tmpBytes`)
 	case isScalar(kind):
 		if isCustomMap {
@@ -147,7 +147,7 @@ func (p *clone) cloneField(lhsBase, rhsBase string, allFieldsNullable bool, fiel
 		if isScalar(fieldKind) && field.Desc.IsList() {
 			// Generated code optimization: instead of iterating over all (key/index, value) pairs,
 			// do a single copy(dst, src) invocation for slices whose elements aren't reference types.
-			p.P(linearPoolPackage.Ident("Append["+goType+"]"), `(ac, tmpContainer, `, rhs, `...)`)
+			p.P(linearPoolPackage.Ident("AppendMulti["+goType+"]"), `(ac, tmpContainer, `, rhs, `...)`)
 		} else {
 			if field.Desc.IsMap() {
 				// For maps, the type of the value field determines what code is generated for cloning
@@ -243,7 +243,7 @@ func (p *clone) body(allFieldsNullable bool, ccTypeName string, fields []*protog
 		// Clone unknown fields, if any
 		p.P(`if len(m.unknownFields) > 0 {`)
 		p.P(`r.unknownFields = `, linearPoolPackage.Ident("NewSlice[byte](ac, 0, len(m.unknownFields))"))
-		p.P(`r.unknownFields = `, linearPoolPackage.Ident("Append[byte](ac, r.unknownFields, m.unknownFields...)"))
+		p.P(`r.unknownFields = `, linearPoolPackage.Ident("AppendMulti[byte](ac, r.unknownFields, m.unknownFields...)"))
 		// p.P(`r.unknownFields = make([]byte, len(m.unknownFields))`)
 		// p.P(`copy(r.unknownFields, m.unknownFields)`)
 		p.P(`}`)
