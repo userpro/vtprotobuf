@@ -365,7 +365,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v2)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v2)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, "(", p.Ident("math", "Float64frombits"), `(v))`)
 		} else {
@@ -383,7 +383,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v2)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v2)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, "(", p.Ident("math", "Float32frombits"), `(v))`)
 		} else {
@@ -402,7 +402,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
@@ -424,7 +424,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
@@ -446,7 +446,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
@@ -468,7 +468,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
@@ -490,7 +490,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed64("m."+fieldname, typ)
@@ -512,7 +512,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed32("m."+fieldname, typ)
@@ -533,7 +533,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", "+typ+`(v != 0))`))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", "+typ+`(v != 0))`))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, `(v != 0)`)
 		} else {
@@ -564,7 +564,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", "+`ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))"+")"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", "+`ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))"+")"))
 		} else if proto3 && !nullable {
 			p.P("v := dAtA[iNdEx:postIndex]")
 			p.P(`m.`, fieldname, ` = ac.NewString(*(*string)(`+p.QualifiedGoIdent(protogen.GoImportPath("unsafe").Ident("Pointer"))+`(&v)`+"))")
@@ -673,7 +673,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 				p.P(`}`)
 				p.P(`}`)
 			} else {
-				p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[*"+typ+"](ac, m."+fieldname+", "+
+				p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound[*"+typ+"](ac, m."+fieldname+", "+
 					p.QualifiedGoIdent(linearPoolPackage.Ident("New["+typ+"]"))+`(ac)`), ")")
 			}
 			varname := fmt.Sprintf("m.%s[len(m.%s) - 1]", fieldname, fieldname)
@@ -714,7 +714,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`v := dAtA[iNdEx:postIndex]`)
 			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
 			p.P(`v2 = `, linearPoolPackage.Ident("AppendMulti[byte]"), `(ac, v2, v...)`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append[+"+typ+"+]"), `(ac, m.`, fieldname, `, v2)`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound[+"+typ+"+]"), `(ac, m.`, fieldname, `, v2)`)
 		} else {
 			p.P(`v := dAtA[iNdEx:postIndex]`)
 			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
@@ -735,7 +735,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeVarint("m."+fieldname, typ)
@@ -759,7 +759,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed32("m."+fieldname, typ)
@@ -781,7 +781,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = 0`)
 			p.decodeFixed64("m."+fieldname, typ)
@@ -802,7 +802,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = v`)
 		} else {
@@ -820,7 +820,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`if m.`, fieldname, ` == nil {`)
 			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("NewSlice["+typ+"](ac, 0, 8)"))
 			p.P(`}`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("Append["+typ+"](ac, m."+fieldname+", v)"))
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"](ac, m."+fieldname+", v)"))
 		} else if proto3 && !nullable {
 			p.P(`m.`, fieldname, ` = `, typ, `(v)`)
 		} else {
