@@ -93,9 +93,13 @@ func (p *clone) cloneFieldSingular(lhs, rhs string, kind protoreflect.Kind, mess
 			p.P(`}`)
 		}
 	case kind == protoreflect.BytesKind:
-		p.P(`tmpBytes := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(`, rhs, `))`)
-		p.P(`tmpBytes = `, linearPoolPackage.Ident("AppendMulti[byte]"), `(ac, tmpBytes, `, rhs, `...)`)
-		p.P(lhs, ` = tmpBytes`)
+		if isCustomMap {
+			p.P(`tmpBytes := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(`, rhs, `))`)
+			p.P(`tmpBytes = `, linearPoolPackage.Ident("AppendMulti[byte]"), `(ac, tmpBytes, `, rhs, `...)`)
+			p.P(lhs, `.Put(tmpBytes)`)
+		} else {
+			p.P(lhs, ` = `, rhs)
+		}
 	case isScalar(kind):
 		if isCustomMap {
 			p.P(lhs, `.Put(k, `, rhs, `)`)
