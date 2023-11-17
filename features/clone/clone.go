@@ -96,7 +96,7 @@ func (p *clone) cloneFieldSingular(lhs, rhs string, kind protoreflect.Kind, mess
 		if isCustomMap {
 			p.P(`tmpBytes := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(`, rhs, `))`)
 			p.P(`tmpBytes = `, linearPoolPackage.Ident("AppendMulti[byte]"), `(ac, tmpBytes, `, rhs, `...)`)
-			p.P(lhs, `.Put(tmpBytes)`)
+			p.P(lhs, `.Put(k, tmpBytes)`)
 		} else {
 			p.P(lhs, ` = `, rhs)
 		}
