@@ -714,7 +714,7 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 			p.P(`v := dAtA[iNdEx:postIndex]`)
 			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
 			p.P(`v2 = `, linearPoolPackage.Ident("AppendMulti[byte]"), `(ac, v2, v...)`)
-			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound[+"+typ+"+]"), `(ac, m.`, fieldname, `, v2)`)
+			p.P(`m.`, fieldname, ` = `, linearPoolPackage.Ident("AppendInbound["+typ+"]"), `(ac, m.`, fieldname, `, v2)`)
 		} else {
 			p.P(`v := dAtA[iNdEx:postIndex]`)
 			p.P(`v2 := `, linearPoolPackage.Ident("NewSlice[byte]"), `(ac, 0, len(v))`)
