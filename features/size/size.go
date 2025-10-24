@@ -16,6 +16,8 @@ import (
 	"github.com/planetscale/vtprotobuf/generator"
 )
 
+var commonPackage protogen.GoImportPath = protogen.GoImportPath("github.com/userpro/vtprotobuf-common")
+
 func init() {
 	generator.RegisterFeature("size", func(gen *generator.GeneratedFile) generator.FeatureGenerator {
 		return &size{GeneratedFile: gen}
@@ -41,19 +43,7 @@ func (p *size) GenerateFile(file *protogen.File) bool {
 	return p.once
 }
 
-func (p *size) GenerateHelpers() {
-	p.Helper("sov", func(p *generator.GeneratedFile) {
-		p.P(`
-		func sov(x uint64) (n int) {
-			return (`, p.Ident("math/bits", "Len64"), `(x | 1) + 6)/ 7
-		}`)
-	})
-	p.Helper("soz", func(p *generator.GeneratedFile) {
-		p.P(`func soz(x uint64) (n int) {
-			return sov(uint64((x << 1) ^ uint64((int64(x) >> 63))))
-		}`)
-	})
-}
+func (p *size) GenerateHelpers() {}
 
 func (p *size) messageSize(varName, sizeName string, message *protogen.Message) {
 	local := p.IsLocalMessage(message)
@@ -90,7 +80,7 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 	switch field.Desc.Kind() {
 	case protoreflect.DoubleKind, protoreflect.Fixed64Kind, protoreflect.Sfixed64Kind:
 		if packed {
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(len(m.`, fieldname, `)*8))`, `+len(m.`, fieldname, `)*8`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(len(m.`, fieldname, `)*8))`, `+len(m.`, fieldname, `)*8`)
 		} else if repeated {
 			p.P(`n+=`, strconv.Itoa(key+8), `*len(m.`, fieldname, `)`)
 		} else if !oneof && !nullable {
@@ -102,7 +92,7 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 		}
 	case protoreflect.FloatKind, protoreflect.Fixed32Kind, protoreflect.Sfixed32Kind:
 		if packed {
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(len(m.`, fieldname, `)*4))`, `+len(m.`, fieldname, `)*4`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(len(m.`, fieldname, `)*4))`, `+len(m.`, fieldname, `)*4`)
 		} else if repeated {
 			p.P(`n+=`, strconv.Itoa(key+4), `*len(m.`, fieldname, `)`)
 		} else if !oneof && !nullable {
@@ -116,25 +106,25 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 		if packed {
 			p.P(`l = 0`)
 			p.P(`for _, e := range m.`, fieldname, ` {`)
-			p.P(`l+=sov(uint64(e))`)
+			p.P(`l+=`, commonPackage.Ident("Sov"), `(uint64(e))`)
 			p.P(`}`)
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(l))+l`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(l))+l`)
 		} else if repeated {
 			p.P(`for _, e := range m.`, fieldname, ` {`)
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(e))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(e))`)
 			p.P(`}`)
 		} else if nullable {
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(*m.`, fieldname, `))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(*m.`, fieldname, `))`)
 		} else if !oneof {
 			p.P(`if m.`, fieldname, ` != 0 {`)
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(m.`, fieldname, `))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(m.`, fieldname, `))`)
 			p.P(`}`)
 		} else {
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(m.`, fieldname, `))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(m.`, fieldname, `))`)
 		}
 	case protoreflect.BoolKind:
 		if packed {
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(len(m.`, fieldname, `)))`, `+len(m.`, fieldname, `)*1`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(len(m.`, fieldname, `)))`, `+len(m.`, fieldname, `)*1`)
 		} else if repeated {
 			p.P(`n+=`, strconv.Itoa(key+1), `*len(m.`, fieldname, `)`)
 		} else if !oneof && !nullable {
@@ -148,19 +138,19 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 		if repeated {
 			p.P(`for _, s := range m.`, fieldname, ` { `)
 			p.P(`l = len(s)`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 			p.P(`}`)
 		} else if nullable {
 			p.P(`l=len(*m.`, fieldname, `)`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 		} else if !oneof {
 			p.P(`l=len(m.`, fieldname, `)`)
 			p.P(`if l > 0 {`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 			p.P(`}`)
 		} else {
 			p.P(`l=len(m.`, fieldname, `)`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 		}
 	case protoreflect.GroupKind:
 		p.messageSize("m."+fieldname, sizeName, field.Message)
@@ -181,13 +171,13 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 			case protoreflect.FloatKind, protoreflect.Fixed32Kind, protoreflect.Sfixed32Kind:
 				sum = append(sum, `4`)
 			case protoreflect.Int64Kind, protoreflect.Uint64Kind, protoreflect.Uint32Kind, protoreflect.EnumKind, protoreflect.Int32Kind:
-				sum = append(sum, `sov(uint64(k))`)
+				sum = append(sum, p.QualifiedGoIdent(commonPackage.Ident("Sov"))+`(uint64(k))`)
 			case protoreflect.BoolKind:
 				sum = append(sum, `1`)
 			case protoreflect.StringKind, protoreflect.BytesKind:
-				sum = append(sum, `len(k)+sov(uint64(len(k)))`)
+				sum = append(sum, `len(k)+`+p.QualifiedGoIdent(commonPackage.Ident("Sov"))+`(uint64(len(k)))`)
 			case protoreflect.Sint32Kind, protoreflect.Sint64Kind:
-				sum = append(sum, `soz(uint64(k))`)
+				sum = append(sum, p.QualifiedGoIdent(commonPackage.Ident("Soz"))+`(uint64(k))`)
 			}
 
 			switch field.Message.Fields[1].Desc.Kind() {
@@ -199,73 +189,73 @@ func (p *size) field(oneof bool, field *protogen.Field, sizeName string) {
 				sum = append(sum, strconv.Itoa(4))
 			case protoreflect.Int64Kind, protoreflect.Uint64Kind, protoreflect.Uint32Kind, protoreflect.EnumKind, protoreflect.Int32Kind:
 				sum = append(sum, strconv.Itoa(valueKeySize))
-				sum = append(sum, `sov(uint64(v))`)
+				sum = append(sum, p.QualifiedGoIdent(commonPackage.Ident("Sov"))+`(uint64(v))`)
 			case protoreflect.BoolKind:
 				sum = append(sum, strconv.Itoa(valueKeySize))
 				sum = append(sum, `1`)
 			case protoreflect.StringKind:
 				sum = append(sum, strconv.Itoa(valueKeySize))
-				sum = append(sum, `len(v)+sov(uint64(len(v)))`)
+				sum = append(sum, `len(v)+`+p.QualifiedGoIdent(commonPackage.Ident("Sov"))+`(uint64(len(v)))`)
 			case protoreflect.BytesKind:
-				p.P(`l = `, strconv.Itoa(valueKeySize), ` + len(v)+sov(uint64(len(v)))`)
+				p.P(`l = `, strconv.Itoa(valueKeySize), ` + len(v)+`, commonPackage.Ident("Sov"), `(uint64(len(v)))`)
 				sum = append(sum, `l`)
 			case protoreflect.Sint32Kind, protoreflect.Sint64Kind:
 				sum = append(sum, strconv.Itoa(valueKeySize))
-				sum = append(sum, `soz(uint64(v))`)
+				sum = append(sum, p.QualifiedGoIdent(commonPackage.Ident("Soz"))+`(uint64(v))`)
 			case protoreflect.MessageKind:
 				p.P(`l = 0`)
 				p.P(`if v != nil {`)
 				p.messageSize("v", sizeName, field.Message.Fields[1].Message)
 				p.P(`}`)
-				p.P(`l += `, strconv.Itoa(valueKeySize), ` + sov(uint64(l))`)
+				p.P(`l += `, strconv.Itoa(valueKeySize), ` + `, commonPackage.Ident("Sov"), `(uint64(l))`)
 				sum = append(sum, `l`)
 			}
 			p.P(`mapEntrySize := `, strings.Join(sum, "+"))
-			p.P(`n+=mapEntrySize+`, fieldKeySize, `+sov(uint64(mapEntrySize))`)
+			p.P(`n+=mapEntrySize+`, fieldKeySize, `+`, commonPackage.Ident("Sov"), `(uint64(mapEntrySize))`)
 			p.P(`}`)
 		} else if field.Desc.IsList() {
 			p.P(`for _, e := range m.`, fieldname, ` { `)
 			p.messageSize("e", sizeName, field.Message)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 			p.P(`}`)
 		} else {
 			p.messageSize("m."+fieldname, sizeName, field.Message)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 		}
 	case protoreflect.BytesKind:
 		if repeated {
 			p.P(`for _, b := range m.`, fieldname, ` { `)
 			p.P(`l = len(b)`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 			p.P(`}`)
 		} else if !oneof && !field.Desc.HasPresence() {
 			p.P(`l=len(m.`, fieldname, `)`)
 			p.P(`if l > 0 {`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 			p.P(`}`)
 		} else {
 			p.P(`l=len(m.`, fieldname, `)`)
-			p.P(`n+=`, strconv.Itoa(key), `+l+sov(uint64(l))`)
+			p.P(`n+=`, strconv.Itoa(key), `+l+`, commonPackage.Ident("Sov"), `(uint64(l))`)
 		}
 	case protoreflect.Sint32Kind, protoreflect.Sint64Kind:
 		if packed {
 			p.P(`l = 0`)
 			p.P(`for _, e := range m.`, fieldname, ` {`)
-			p.P(`l+=soz(uint64(e))`)
+			p.P(`l+=`, commonPackage.Ident("Soz"), `(uint64(e))`)
 			p.P(`}`)
-			p.P(`n+=`, strconv.Itoa(key), `+sov(uint64(l))+l`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Sov"), `(uint64(l))+l`)
 		} else if repeated {
 			p.P(`for _, e := range m.`, fieldname, ` {`)
-			p.P(`n+=`, strconv.Itoa(key), `+soz(uint64(e))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Soz"), `(uint64(e))`)
 			p.P(`}`)
 		} else if nullable {
-			p.P(`n+=`, strconv.Itoa(key), `+soz(uint64(*m.`, fieldname, `))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Soz"), `(uint64(*m.`, fieldname, `))`)
 		} else if !oneof {
 			p.P(`if m.`, fieldname, ` != 0 {`)
-			p.P(`n+=`, strconv.Itoa(key), `+soz(uint64(m.`, fieldname, `))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Soz"), `(uint64(m.`, fieldname, `))`)
 			p.P(`}`)
 		} else {
-			p.P(`n+=`, strconv.Itoa(key), `+soz(uint64(m.`, fieldname, `))`)
+			p.P(`n+=`, strconv.Itoa(key), `+`, commonPackage.Ident("Soz"), `(uint64(m.`, fieldname, `))`)
 		}
 	default:
 		panic("not implemented")

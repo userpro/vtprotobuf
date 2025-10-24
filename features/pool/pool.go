@@ -49,9 +49,26 @@ func (p *pool) message(message *protogen.Message) {
 	p.P(`}`)
 
 	p.P(`func (m *`, ccTypeName, `) ResetVT() {`)
+	p.P(`if m == nil {`)
+	p.P(`return`)
+	p.P(`}`)
 	var saved []*protogen.Field
+	oneofFields := make(map[string][]*protogen.Field)
 	for _, field := range message.Fields {
 		fieldName := field.GoName
+
+		// 仅处理非 oneof 字段
+		oneof := field.Oneof != nil && !field.Oneof.Desc.IsSynthetic()
+		if oneof {
+			oneofFields[field.Oneof.GoName] = append(oneofFields[field.Oneof.GoName], field)
+			continue
+		}
+
+		// 忽略 optional 字段，因为 optional 字段是没有默认值的，所以不需要重置
+		if field.Desc.HasOptionalKeyword() {
+			p.P(`m.`, fieldName, `= nil`)
+			continue
+		}
 
 		if field.Desc.IsList() {
 			switch field.Desc.Kind() {
@@ -61,26 +78,80 @@ func (p *pool) message(message *protogen.Message) {
 					p.P(`mm.ResetVT()`)
 					p.P(`}`)
 				}
+				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
+				saved = append(saved, field)
 			default:
 				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
 				saved = append(saved, field)
 			}
+		} else if field.Desc.IsMap() {
+			tmpVarName := fmt.Sprintf("f%d", len(saved))
+			p.P(tmpVarName, ` := m.`, fieldName)
+			// Comment: 对 map 的 message value 进行 pool 无收益
+			// kind := field.Desc.Kind()
+			// if (kind == protoreflect.MessageKind || kind == protoreflect.GroupKind) &&
+			// 	p.ShouldPool(field.Message.Fields[1].Message) {
+			// 	p.P(`for k, v := range `, tmpVarName, ` {`)
+			// 	p.P(`v.ReturnToVTPool()`)
+			// } else {
+			p.P(`for k := range `, tmpVarName, ` {`)
+			// }
+			p.P(`delete(`, tmpVarName, `, k)`)
+			p.P(`}`)
+			saved = append(saved, field)
 		} else {
 			switch field.Desc.Kind() {
 			case protoreflect.MessageKind, protoreflect.GroupKind:
 				if p.ShouldPool(field.Message) {
-					p.P(`m.`, fieldName, `.ReturnToVTPool()`)
+					p.P(`m.`, fieldName, `.ResetVT()`)
+					p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName)
+					saved = append(saved, field)
 				}
-			case protoreflect.BytesKind:
-				p.P(fmt.Sprintf("f%d", len(saved)), ` := m.`, fieldName, `[:0]`)
-				saved = append(saved, field)
 			}
 		}
 	}
 
-	p.P(`m.Reset()`)
+	// 处理 oneof字段
+	oneofSaved := []string{}
+	for fieldOneofName, fields := range oneofFields {
+		needGen := false
+		for _, field := range fields {
+			switch field.Desc.Kind() {
+			case protoreflect.MessageKind, protoreflect.GroupKind:
+				if p.ShouldPool(field.Message) {
+					needGen = true
+				}
+			}
+		}
+		if !needGen {
+			continue
+		}
+
+		p.P(fmt.Sprintf("f%d", len(oneofSaved)+len(saved)), ` := m.`, fieldOneofName)
+		oneofSaved = append(oneofSaved, fieldOneofName)
+		p.P(`switch v := m.`, fieldOneofName, `.(type) {`)
+		for _, field := range fields {
+			fieldName := field.GoName
+
+			switch field.Desc.Kind() {
+			case protoreflect.MessageKind, protoreflect.GroupKind:
+				if p.ShouldPool(field.Message) {
+					p.P(`case *`, field.GoIdent, `:`)
+					p.P(`v.`, fieldName, `.ResetVT()`)
+				}
+			}
+		}
+		p.P(`}`)
+	}
+
+	// p.P(`m.Reset()`)
+	p.P(`*m = `, ccTypeName, `{}`)
 	for i, field := range saved {
 		p.P(`m.`, field.GoName, ` = `, fmt.Sprintf("f%d", i))
+	}
+
+	for i, field := range oneofSaved {
+		p.P(`m.`, field, ` = `, fmt.Sprintf("f%d", i+len(saved)))
 	}
 	p.P(`}`)
 
